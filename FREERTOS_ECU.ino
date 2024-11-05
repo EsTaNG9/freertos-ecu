@@ -22,7 +22,9 @@ SemaphoreHandle_t xBinarySemaphore;
 // pin to generate interrupts
 const uint8_t interruptPin = 4;
 
+const uint8_t teethNum = 35;
 volatile unsigned long pulseCount = 0; // Counts pulses
+volatile unsigned long lapCount = 0; // Counts pulses
 unsigned long lastTime = 0; // Last time RPM was calculated
 unsigned int rpm = 0; // RPM value
 
@@ -40,7 +42,7 @@ void setup( void )
 
 
    pinMode(interruptPin, INPUT_PULLUP);
-   attachInterrupt(digitalPinToInterrupt(interruptPin), vExampleInterruptHandler, FALLING);
+   attachInterrupt(digitalPinToInterrupt(interruptPin), onPulse, FALLING);
 
 
 
@@ -55,11 +57,6 @@ void setup( void )
 
   }
 
-    /* If all is well we will never reach here as the scheduler will now be
-    running the tasks.  If we do reach here then it is likely that there was
-    insufficient heap memory available for a resource to be created. */
-//  for( ;; );
-//  return 0;
 }
 
 // Task to calculate RPM
@@ -69,27 +66,37 @@ void calculateRPM(void *pvParameters) {
         unsigned long currentTime = millis();
         unsigned long interval = currentTime - lastTime;
 
-        if (interval >= 1000) { // Calculate every 1000ms (1 second)
-            rpm = (pulseCount * 60 * 1000) / interval; // RPM calculation
+        if (interval >= 200) { // Calculate every xms (x second)
+
+
+
+            rpm = ((pulseCount * 60) / teethNum) / interval; // RPM calculation
             pulseCount = 0; // Reset pulse count
             lastTime = currentTime;
 
-            Serial.print("RPM: ");
-            Serial.println(rpm); // Output RPM
+            /*Serial.print("RPM: ");
+            Serial.println(rpm); // Output RPM*/
+
+            /*Serial.print("Voltas de Cambota: ");
+            Serial.println(lapCount); // Output RPM*/
         }
 
-        vTaskDelay( 100 / portTICK_PERIOD_MS); // Delay for task scheduling
+        vTaskDelay( 200 / portTICK_PERIOD_MS); // Delay for task scheduling
     }
 }
 
-
+// Interrupção gerada na transição do sinal do sensor de Hall
 void IRAM_ATTR onPulse( void )
 {
 
-	//Serial.print( "interrpcao\r\n" );
+	Serial.print( "interrpcao\r\n" );
+	//lapCount++; // Increase lap count on each pulse
 	pulseCount++; // Increase pulse count on each pulse
 
-
+	/*if (pulseCount > 34) {
+		lapCount++;
+		pulseCount = 0;
+	}*/
 }
 //------------------------------------------------------------------------------
 void loop()

@@ -12,7 +12,6 @@ Config.Release.board.BOARD.MENU.PSRAM=disabled
 Config.Release.board.BOARD.MENU.PartitionScheme=default
 Config.Release.board.BOARD.MENU.UploadSpeed=921600
 Config.Release.board.BOARD.MENU.ZigbeeMode=default
-Config.Release.board.BOARD.MENU.cpu=getMenuItemIDFromMenuItemName did not find menu item with name "ATmega2560 (Mega 2560)" for menu ID "cpu" and for boardID "mega"!
 Config.Release.board.BOARD.TXT=C:\DEV\Sloeber\arduinoPlugin\packages\esp32\hardware\esp32\3.0.4\boards.txt
 Config.Release.board.PROGRAMMER.NAME=
 Config.Release.board.UPLOAD.PORT=COM13
