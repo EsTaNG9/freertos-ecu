@@ -27,6 +27,7 @@ volatile unsigned long pulseCount = 0; // Counts pulses
 volatile unsigned long lapCount = 0; // Counts pulses
 unsigned long lastTime = 0; // Last time RPM was calculated
 unsigned int rpm = 0; // RPM value
+unsigned int maxrpm = 0; // RPM value
 
 
 void setup( void )
@@ -41,7 +42,7 @@ void setup( void )
     vSemaphoreCreateBinary( xBinarySemaphore );
 
 
-   pinMode(interruptPin, INPUT_PULLUP);
+   pinMode(interruptPin, INPUT);
    attachInterrupt(digitalPinToInterrupt(interruptPin), onPulse, FALLING);
 
 
@@ -70,12 +71,19 @@ void calculateRPM(void *pvParameters) {
 
 
 
-            rpm = ((pulseCount * 60) / teethNum) / interval; // RPM calculation
+            rpm = ((pulseCount * 60 * 1000) / teethNum) / interval; // RPM calculation
             pulseCount = 0; // Reset pulse count
             lastTime = currentTime;
 
-            /*Serial.print("RPM: ");
-            Serial.println(rpm); // Output RPM*/
+            if (maxrpm < rpm){
+            	maxrpm = rpm;
+            }
+
+            Serial.print("RPM: ");
+            Serial.println(rpm); // Output RPM
+
+            Serial.print("Max RPM: ");
+            Serial.println(maxrpm); // Output RPM
 
             /*Serial.print("Voltas de Cambota: ");
             Serial.println(lapCount); // Output RPM*/
@@ -89,7 +97,7 @@ void calculateRPM(void *pvParameters) {
 void IRAM_ATTR onPulse( void )
 {
 
-	Serial.print( "interrpcao\r\n" );
+	//Serial.print( "interrpcao\r\n" );
 	//lapCount++; // Increase lap count on each pulse
 	pulseCount++; // Increase pulse count on each pulse
 
