@@ -5,9 +5,21 @@
 #include "esp_system.h"
 #include "nvs_flash.h"
 #include "esp_task_wdt.h"
+#include "SPI.h"
+#include "Adafruit_GFX.h"
+#include "Adafruit_ILI9341.h"
+
+// Definir os terminais do LCD
+#define TFT_CS   05
+#define TFT_DC   26
+#define TFT_MOSI 23
+#define TFT_MISO 19
+#define TFT_SCLK 18
+#define TFT_RST -1 // ligar ao 3V3
 
 /* The tasks to be created. */
 void calculateRPM( void *pvParameters );
+void vInitDisplay( void *pvParameters );
 
 /* The service routine for the interrupt.  This is the interrupt that the task
 will be synchronized with. */
@@ -32,20 +44,25 @@ unsigned int maxrpm = 0; // RPM value
 
 void setup( void )
 {
-  // Set loopTask max priority before deletion
-  vTaskPrioritySet(NULL, configMAX_PRIORITIES-1);
+	// Set loopTask max priority before deletion
+	vTaskPrioritySet(NULL, configMAX_PRIORITIES-1);
 
-  // Init USART and set Baud-rate to 115200
-  Serial.begin(115200);
-    /* Before a semaphore is used it must be explicitly created.  In this example
-  a binary semaphore is created. */
-    vSemaphoreCreateBinary( xBinarySemaphore );
+	  // Init USART and set Baud-rate to 115200
+	  Serial.begin(115200);
 
+	  // Inicializar o tft
+	 tft.begin();
+	 // Colocar fundo preto
+	 tft.fillScreen(ILI9341_BLACK);
+	 // Definir orientação da escrita
+	 tft.setRotation(0);
 
-   pinMode(interruptPin, INPUT);
-   attachInterrupt(digitalPinToInterrupt(interruptPin), onPulse, FALLING);
+  /* Before a semaphore is used it must be explicitly created.  In this example a binary semaphore is created. */
+  vSemaphoreCreateBinary( xBinarySemaphore );
 
-
+  //Interrupção Hall Sensor
+  pinMode(interruptPin, INPUT);
+  attachInterrupt(digitalPinToInterrupt(interruptPin), onPulse, FALLING);
 
   /* Check the semaphore was created successfully. */
   if( xBinarySemaphore != NULL )
@@ -55,6 +72,7 @@ void setup( void )
     ensure it runs immediately after the interrupt exits.  In this case a
     priority of 3 is chosen. */
     xTaskCreatePinnedToCore( calculateRPM, "Calculate RPM", 1024, NULL, 3, NULL, 1);
+    xTaskCreatePinnedToCore( vInitDisplay, "Display Boot", 1024, NULL, 1, NULL, 1);
 
   }
 
