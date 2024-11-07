@@ -1,3 +1,4 @@
+#include <math.h>
 #include "Arduino.h"
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
@@ -5,9 +6,9 @@
 #include "esp_system.h"
 #include "nvs_flash.h"
 #include "esp_task_wdt.h"
-#include "SPI.h"
-#include "Adafruit_GFX.h"
-#include "Adafruit_ILI9341.h"
+#include <SPI.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ILI9341.h>
 
 // Definir os terminais do LCD
 #define TFT_CS   05
@@ -16,6 +17,10 @@
 #define TFT_MISO 19
 #define TFT_SCLK 18
 #define TFT_RST -1 // ligar ao 3V3
+
+// Criar um objeto tft com indicação dos terminais CS e DC
+Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK,
+		TFT_RST, TFT_MISO);
 
 /* The tasks to be created. */
 void calculateRPM( void *pvParameters );
