@@ -24,7 +24,7 @@ Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK,
 
 /* The tasks to be created. */
 void calculateRPM( void *pvParameters );
-void vInitDisplay( void *pvParameters );
+//void vInitDisplay( void *pvParameters );
 
 /* The service routine for the interrupt.  This is the interrupt that the task
 will be synchronized with. */
@@ -42,9 +42,11 @@ const uint8_t interruptPin = 4;
 const uint8_t teethNum = 35;
 volatile unsigned long pulseCount = 0; // Counts pulses
 volatile unsigned long lapCount = 0; // Counts pulses
-unsigned long lastTime = 0; // Last time RPM was calculated
 unsigned int rpm = 0; // RPM value
 unsigned int maxrpm = 0; // RPM value
+unsigned long pulseInterval = 0; //Interval between pulses
+unsigned long lastTime = 0; //Variable to attribute the time before mesuring rpm
+unsigned long lastPulse = 0; //Variable to attribute the time at the pulse interrupt
 
 
 void setup( void )
@@ -54,13 +56,6 @@ void setup( void )
 
 	  // Init USART and set Baud-rate to 115200
 	  Serial.begin(115200);
-
-	  // Inicializar o tft
-	 tft.begin();
-	 // Colocar fundo preto
-	 tft.fillScreen(ILI9341_BLACK);
-	 // Definir orientação da escrita
-	 tft.setRotation(0);
 
   /* Before a semaphore is used it must be explicitly created.  In this example a binary semaphore is created. */
   vSemaphoreCreateBinary( xBinarySemaphore );
@@ -77,7 +72,7 @@ void setup( void )
     ensure it runs immediately after the interrupt exits.  In this case a
     priority of 3 is chosen. */
     xTaskCreatePinnedToCore( calculateRPM, "Calculate RPM", 1024, NULL, 3, NULL, 1);
-    xTaskCreatePinnedToCore( vInitDisplay, "Display Boot", 1024, NULL, 1, NULL, 1);
+    //xTaskCreatePinnedToCore( vInitDisplay, "Display Boot", 1024, NULL, 1, NULL, 1);
 
   }
 
@@ -115,6 +110,18 @@ void calculateRPM(void *pvParameters) {
         vTaskDelay( 200 / portTICK_PERIOD_MS); // Delay for task scheduling
     }
 }
+/*void vInitDisplay(void *pvParameters) {
+
+	  // Inicializar o tft
+	 tft.begin();
+	 // Colocar fundo preto
+	 tft.fillScreen(ILI9341_BLACK);
+	 // Definir orientação da escrita
+	 tft.setRotation(0);
+
+	vTaskDelete( NULL );
+
+}*/
 
 // Interrupção gerada na transição do sinal do sensor de Hall
 void IRAM_ATTR onPulse( void )
@@ -122,12 +129,10 @@ void IRAM_ATTR onPulse( void )
 
 	//Serial.print( "interrpcao\r\n" );
 	//lapCount++; // Increase lap count on each pulse
+	//pulseInterval = long(millis()) - lastPulse;
+	//lastPulse = millis();
 	pulseCount++; // Increase pulse count on each pulse
 
-	/*if (pulseCount > 34) {
-		lapCount++;
-		pulseCount = 0;
-	}*/
 }
 //------------------------------------------------------------------------------
 void loop()
