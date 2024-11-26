@@ -5,109 +5,121 @@
 #include "esp_system.h"
 #include "nvs_flash.h"
 #include "esp_task_wdt.h"
+#include <TFT_eSPI.h>  // Biblioteca para o display TFT
 
-/* The tasks to be created. */
-void calculateRPM( void *pvParameters );
+TFT_eSPI tft = TFT_eSPI();  // Instância do display TFT
 
-/* The service routine for the interrupt.  This is the interrupt that the task
-will be synchronized with. */
-void IRAM_ATTR onPulse( void );
+// Tarefas e funções
+void calculateRPM(void *pvParameters);
+void IRAM_ATTR onPulse(void);
 
-/*-----------------------------------------------------------*/
-
-/* Declare a variable of type SemaphoreHandle_t.  This is used to reference the
-semaphore that is used to synchronize a task with an interrupt. */
+// Declaração do semáforo
 SemaphoreHandle_t xBinarySemaphore;
 
-// pin to generate interrupts
+// Configuração de pino e variáveis de cálculo
 const uint8_t interruptPin = 4;
-
 const uint8_t teethNum = 35;
-volatile unsigned long pulseCount = 0; // Counts pulses
-volatile unsigned long lapCount = 0; // Counts pulses
-unsigned long lastTime = 0; // Last time RPM was calculated
-unsigned int rpm = 0; // RPM value
-unsigned int maxrpm = 0; // RPM value
+volatile unsigned long pulseCount = 0;
+unsigned long lastTime = 0;
+unsigned int rpm = 0;
+unsigned int maxrpm = 0;
 
+// Configuração para o medidor de ponteiro
+const int minRPM = 0;
+const int maxRPM = 8000;  // Máximo do medidor de RPM
+const int centerX = 120;  // Centro do medidor (ajuste conforme seu display)
+const int centerY = 160;
+const int radius = 100;
 
-void setup( void )
-{
-  // Set loopTask max priority before deletion
-  vTaskPrioritySet(NULL, configMAX_PRIORITIES-1);
+void setup() {
+  // Define a prioridade máxima para a tarefa loop antes de deletá-la
+  vTaskPrioritySet(NULL, configMAX_PRIORITIES - 1);
 
-  // Init USART and set Baud-rate to 115200
+  // Inicializa o serial
   Serial.begin(115200);
-    /* Before a semaphore is used it must be explicitly created.  In this example
-  a binary semaphore is created. */
-    vSemaphoreCreateBinary( xBinarySemaphore );
 
+  // Criação do semáforo binário
+  vSemaphoreCreateBinary(xBinarySemaphore);
 
-   pinMode(interruptPin, INPUT);
-   attachInterrupt(digitalPinToInterrupt(interruptPin), onPulse, FALLING);
+  // Configurações do pino de interrupção
+  pinMode(interruptPin, INPUT);
+  attachInterrupt(digitalPinToInterrupt(interruptPin), onPulse, FALLING);
 
+  // Configuração do display TFT
+  tft.init();
+  tft.setRotation(1);
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextSize(2);
 
-
-  /* Check the semaphore was created successfully. */
-  if( xBinarySemaphore != NULL )
-  {
-    /* Create the 'handler' task.  This is the task that will be synchronized
-    with the interrupt.  The handler task is created with a high priority to
-    ensure it runs immediately after the interrupt exits.  In this case a
-    priority of 3 is chosen. */
-    xTaskCreatePinnedToCore( calculateRPM, "Calculate RPM", 1024, NULL, 3, NULL, 1);
-
+  // Verifica se o semáforo foi criado com sucesso
+  if (xBinarySemaphore != NULL) {
+    xTaskCreatePinnedToCore(calculateRPM, "Calculate RPM", 1024, NULL, 3, NULL, 1);
   }
-
 }
 
-// Task to calculate RPM
+// Tarefa para calcular o RPM
 void calculateRPM(void *pvParameters) {
-    while (true) {
-        // Calculate RPM every second
-        unsigned long currentTime = millis();
-        unsigned long interval = currentTime - lastTime;
+  while (true) {
+    // Calcula o RPM a cada 200 ms
+    unsigned long currentTime = millis();
+    unsigned long interval = currentTime - lastTime;
 
-        if (interval >= 200) { // Calculate every xms (x second)
+    if (interval >= 200) {  // Calcula a cada 200 ms (0,2 segundo)
+      rpm = ((pulseCount * 60 * 1000) / teethNum) / interval; // Cálculo do RPM
+      pulseCount = 0; // Reseta o contador de pulsos
+      lastTime = currentTime;
 
+      // Atualiza o valor máximo de RPM se necessário
+      if (maxrpm < rpm) {
+        maxrpm = rpm;
+      }
 
+      // Exibe no monitor serial
+      Serial.print("RPM: ");
+      Serial.println(rpm);
 
-            rpm = ((pulseCount * 60 * 1000) / teethNum) / interval; // RPM calculation
-            pulseCount = 0; // Reset pulse count
-            lastTime = currentTime;
+      Serial.print("Max RPM: ");
+      Serial.println(maxrpm);
 
-            if (maxrpm < rpm){
-            	maxrpm = rpm;
-            }
+      // Atualiza o display com o valor de RPM
+      displayRPM(rpm);
 
-            Serial.print("RPM: ");
-            Serial.println(rpm); // Output RPM
-
-            Serial.print("Max RPM: ");
-            Serial.println(maxrpm); // Output RPM
-
-            /*Serial.print("Voltas de Cambota: ");
-            Serial.println(lapCount); // Output RPM*/
-        }
-
-        vTaskDelay( 200 / portTICK_PERIOD_MS); // Delay for task scheduling
+      vTaskDelay(200 / portTICK_PERIOD_MS);  // Aguarda antes de atualizar novamente
     }
+  }
 }
 
-// Interrupção gerada na transição do sinal do sensor de Hall
-void IRAM_ATTR onPulse( void )
-{
+// Função para desenhar o medidor de RPM no display TFT
+void displayRPM(int rpmValue) {
+  tft.fillScreen(TFT_BLACK);  // Limpa a tela
 
-	//Serial.print( "interrpcao\r\n" );
-	//lapCount++; // Increase lap count on each pulse
-	pulseCount++; // Increase pulse count on each pulse
+  // Desenha o círculo do medidor
+  tft.drawCircle(centerX, centerY, radius, TFT_WHITE);
+  tft.drawCircle(centerX, centerY, radius + 5, TFT_WHITE);  // Borda extra para o medidor
 
-	/*if (pulseCount > 34) {
-		lapCount++;
-		pulseCount = 0;
-	}*/
+  // Calcula o ângulo do ponteiro baseado no valor de RPM
+  float angle = map(rpmValue, minRPM, maxRPM, -150, 150);
+  float radianAngle = angle * 0.0174533;  // Converte para radianos
+
+  // Coordenadas para a ponta do ponteiro
+  int x = centerX + radius * cos(radianAngle);
+  int y = centerY - radius * sin(radianAngle);
+
+  // Desenha o ponteiro
+  tft.drawLine(centerX, centerY, x, y, TFT_RED);
+
+  // Exibe o valor de RPM em texto
+  tft.setCursor(60, 250);
+  tft.printf("RPM: %d", rpmValue);
 }
-//------------------------------------------------------------------------------
-void loop()
-{
-  vTaskDelete( NULL );
+
+// Interrupção para contar pulsos
+void IRAM_ATTR onPulse(void) {
+  pulseCount++; // Incrementa o contador de pulsos a cada pulso detectado
+}
+
+void loop() {
+  // Deleta a tarefa loop padrão para usar o FreeRTOS
+  vTaskDelete(NULL);
 }
