@@ -1,148 +1,350 @@
-#include <TFT_eSPI.h>
-#include <math.h>
-#include "Arduino.h"
 #include <stdio.h>
+#include "Arduino.h"
+#include <Adafruit_GFX.h> // Core graphics library
+#include <Adafruit_ST7735.h> // Hardware-specific library for ST7735
+#include <SPI.h>
+#include "DHT.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_system.h"
 #include "nvs_flash.h"
 #include "esp_task_wdt.h"
-#include <SPI.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_ILI9341.h>
+
+// Imagens em bitmap
+#include "engauto.h" //logo automovel
+#include "logo_temp_motor.h" //logo temp_motor
+#include "logo_temp_pneu.h" //logo temp_pneu
+#include "logo_temp_exterior.h" //logo temp_exterior
+#include "logo_humidade.h" //logo logo_humidade
+#include "logo_tps.h" //logo logo_tps
+#include "logo_rpm.h" //logo logo_rpm
+
+//Constantes Global
+const uint8_t DEBUG = 1; // DEBUG
+#define DHTTYPE DHT11
+#define ADCres 12 //Definicao  de ADC
+
+//Variaveis Globais
+bool ESTADODISPLAY = false; // diaply on off
+
+//Definir os pinos de input
+#define TFT_DC 12
+#define TFT_CS 13
+#define TFT_MOSI 14
+#define TFT_CLK 27
+#define TFT_RST 0
+#define TFT_MISO 0
+#define DHTPIN 5
+#define LM35PIN 12
+
+Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_MOSI, TFT_CLK, TFT_RST);
+DHT dht(DHTPIN, DHTTYPE);
+
+// Definicao de estruturas
+typedef struct {
+  int humidade;
+  float temp_exterior;
+} temphumidade_para_display;
 
 
+/* Definicoes de prototipos das tarefas */
+void vIniciarDisplay( void * pvParameters);
+void vApagarValoresDisplay( void * pvParameters);
+void vEscreverValoresDisplay( void * pvParameters);
+void vLerTempHumidade( void * pvParameters);
+void vLerTempMotor (void * pvparameters);
 
-// Definir os terminais do LCD
-#define TFT_CS   05
-#define TFT_DC   26
-#define TFT_MOSI 23
-#define TFT_MISO 19
-#define TFT_SCLK 18
-#define TFT_RST -1 // ligar ao 3V3
+/*Handler de tarefas*/
+TaskHandle_t xResetValoresDisplayHandle;
 
-// Criar um objeto tft com indicação dos terminais CS e DC
-Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK,
-		TFT_RST, TFT_MISO);
+//Queue para transferencia de temperatu/
+QueueHandle_t temphumidadeQueue;
+QueueHandle_t tempmotorQueue;
 
-// Tarefas e funções
-void calculateRPM(void *pvParameters);
-void IRAM_ATTR onPulse(void);
+/* Protoripoa de semaforos para sincronizacao de interrupcoees*/
+SemaphoreHandle_t limparValores;
 
-// Declaração do semáforo
-SemaphoreHandle_t xBinarySemaphore;
 
-// Configuração de pino e variáveis de cálculo
-const uint8_t interruptPin = 4;
-const uint8_t teethNum = 35;
-volatile unsigned long pulseCount = 0;
-unsigned long lastTime = 0;
-unsigned int rpm = 0;
-unsigned int maxrpm = 0;
+// setup
+void setup()
+{
+  //ADC
+  analogReadResolution(ADCres);
+  dht.begin();
 
-// Configuração para o medidor de ponteiro
-const int minRPM = 0;
-const int maxRPM = 8000;  // Máximo do medidor de RPM
-const int centerX = 150;  // Centro do medidor (ajuste conforme seu display)
-const int centerY = 110;
-const int radius = 90;
+  //Inputs
+  pinMode(DHTPIN, INPUT_PULLUP);
+  pinMode(LM35PIN, INPUT_PULLUP);
 
-void setup() {
-  // Define a prioridade máxima para a tarefa loop antes de deletá-la
+  // Criar queues
+  temphumidadeQueue = xQueueCreate(3, sizeof(temphumidade_para_display));
+  tempmotorQueue = xQueueCreate(3, sizeof(float));
+
   vTaskPrioritySet(NULL, configMAX_PRIORITIES - 1);
 
-  // Inicializa o serial
+  // Criar tarefas
+  xTaskCreatePinnedToCore(vIniciarDisplay, "Iniciar e escrever imagens no display", 8192, NULL, 1, NULL, 0);
+  xTaskCreatePinnedToCore(vApagarValoresDisplay, "Apagar os valores do dispplay", 1024, NULL, 2, &xResetValoresDisplayHandle, 0);
+  xTaskCreatePinnedToCore(vLerTempHumidade, "Temperatura e Humidade", 1024, NULL, 3, NULL, 0);
+  xTaskCreatePinnedToCore(vLerTempMotor, "Temperatura Motor", 1024, NULL, 3, NULL, 0);
+
   Serial.begin(115200);
-
-  // Criação do semáforo binário
-  vSemaphoreCreateBinary(xBinarySemaphore);
-
-  // Configurações do pino de interrupção
-  pinMode(interruptPin, INPUT);
-  attachInterrupt(digitalPinToInterrupt(interruptPin), onPulse, FALLING);
-
-  // Configuração do display TFT
-  tft.begin();
-  tft.setRotation(1);
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextSize(2);
-
-  // Verifica se o semáforo foi criado com sucesso
-  if (xBinarySemaphore != NULL) {
-    xTaskCreatePinnedToCore(calculateRPM, "Calculate RPM", 1024, NULL, 3, NULL, 1);
-  }
 }
 
-// Tarefa para calcular o RPM
-void calculateRPM(void *pvParameters) {
-  while (true) {
-    // Calcula o RPM a cada 200 ms
-    unsigned long currentTime = millis();
-    unsigned long interval = currentTime - lastTime;
+// Task para desenhar o logotipo de EAU
+void vIniciarDisplay(void *pvParameters)
+{
+  temphumidade_para_display receber_dados_dht11;
+  float temp_motor = 0, temp_peneu = 0, tps = 0, rpm = 0;
 
-    if (interval >= 200) {  // Calcula a cada 200 ms (0,2 segundo)
-      rpm = ((pulseCount * 60 * 1000) / teethNum) / interval; // Cálculo do RPM
-      pulseCount = 0; // Reseta o contador de pulsos
-      lastTime = currentTime;
+  TickType_t xLastWakeTime = xTaskGetTickCount();
 
-      // Atualiza o valor máximo de RPM se necessário
-      if (maxrpm < rpm) {
-        maxrpm = rpm;
+  for (;;)
+  {
+    if (ESTADODISPLAY == false)
+    {
+      tft.initR(INITR_BLACKTAB);
+      tft.setRotation(3);
+      tft.fillScreen(ST77XX_BLACK);
+      if (DEBUG == 1) {
+        Serial.println("Ligar Display");
       }
 
-      // Exibe no monitor serial
-      Serial.print("RPM: ");
+      //  LogoEAU
+      int altura = 17, largura = 160;   // Definicao da dimensao da imagem
+      int linha, coluna, inicio_x = 0; // Definicao de ints temporarios
+      // Ler a linha do bitmap
+      for (linha = 0; linha < altura; linha++)
+      {
+        // Ler coluna do bitmap
+        for (coluna = 0; coluna < largura; coluna++)
+        {
+          tft.drawPixel(coluna, linha, pgm_read_word(engauto + inicio_x)); // Desenhar o pixel no sitio correto
+          inicio_x++;
+        }
+      }
+
+      // RPM
+      altura = 20;
+      largura = 38;   // Definicao da dimensao da imagem
+      inicio_x = 0;  // Definicao de ints temporarios
+      // Ler a linha do bitmap
+      for (linha = 0; linha < altura; linha++)
+      {
+        // Ler coluna do bitmap
+        for (coluna = 0; coluna < largura; coluna++)
+        {
+          tft.drawPixel(coluna + 110, linha + 80, pgm_read_word(logo_rpm + inicio_x)); // Desenhar o pixel no sitio correto
+          inicio_x++;
+        } // end pixel
+      }
+
+      // TPS
+      altura = 20;
+      largura = 31;   // Definicao da dimensao da imagem
+      inicio_x = 0;  // Definicao de ints temporarios
+      // Ler a linha do bitmap
+      for (linha = 0; linha < altura; linha++)
+      {
+        // Ler coluna do bitmap
+        for (coluna = 0; coluna < largura; coluna++)
+        {
+          tft.drawPixel(coluna + 62, linha + 80, pgm_read_word(logo_tps + inicio_x)); // Desenhar o pixel no sitio correto
+          inicio_x++;
+        } // end pixel
+      }
+
+      // Humidade
+      altura = 20;
+      largura = 15;   // Definicao da dimensao da imagem
+      inicio_x = 0;  // Definicao de ints temporarios
+      // Ler a linha do bitmap
+      for (linha = 0; linha < altura; linha++)
+      {
+        // Ler coluna do bitmap
+        for (coluna = 0; coluna < largura; coluna++)
+        {
+          tft.drawPixel(coluna + 19, linha + 80, pgm_read_word(logo_humidade + inicio_x)); // Desenhar o pixel no sitio correto
+          inicio_x++;
+        } // end pixel
+      }
+
+      // Temp. Exterior
+      altura = 20;
+      largura = 16;   // Definicao da dimensao da imagem
+      inicio_x = 0;  // Definicao de ints temporarios
+      // Ler a linha do bitmap
+      for (linha = 0; linha < altura; linha++)
+      {
+        // Ler coluna do bitmap
+        for (coluna = 0; coluna < largura; coluna++)
+        {
+          tft.drawPixel(coluna + 120, linha + 25, pgm_read_word(logo_temp_exterior + inicio_x)); // Desenhar o pixel no sitio correto
+          inicio_x++;
+        } // end pixel
+      }
+
+      // Temp. Pneu
+      altura = 20;
+      largura = 16;   // Definicao da dimensao da imagem
+      inicio_x = 0;  // Definicao de ints temporarios
+      // Ler a linha do bitmap
+      for (linha = 0; linha < altura; linha++)
+      {
+        // Ler coluna do bitmap
+        for (coluna = 0; coluna < largura; coluna++)
+        {
+          tft.drawPixel(coluna + 70, linha + 25, pgm_read_word(logo_temp_pneu + inicio_x)); // Desenhar o pixel no sitio correto
+          inicio_x++;
+        } // end pixel
+      }
+
+      // Temp. Motor
+      altura = 20;    // Definicao da dimensao da imagem
+      largura = 23;   // Definicao da dimensao da imagem
+      inicio_x = 0;   // Definicao de ints temporarios
+      // Ler a linha do bitmap
+      for (linha = 0; linha < altura; linha++)
+      {
+        // Ler coluna do bitmap
+        for (coluna = 0; coluna < largura; coluna++)
+        {
+          tft.drawPixel(coluna + 15, linha + 25, pgm_read_word(logo_temp_motor + inicio_x)); // Desenhar o pixel no sitio correto
+          inicio_x++;
+        } // end pixel
+      }
+
+      ESTADODISPLAY = true;
+      Serial.println(ESTADODISPLAY);
+      Serial.println("  Tarefa: Iniciar e escrever imagens no display");
+      vTaskDelayUntil(&xLastWakeTime, (500 / portTICK_PERIOD_MS));
+
+    } else {
+
+      xQueueReceive(temphumidadeQueue, &receber_dados_dht11, 0);
+      xQueueReceive(tempmotorQueue, &temp_motor, 0);
+      //Serial.println(temp_motor);
+      //Serial.println(receber_dados_dht11.temp_exterior);
+      //Serial.println(receber_dados_dht11.humidade);
+
+      Serial.println("Dados escrever display: ");
+      Serial.println(temp_motor);
+      Serial.println(temp_peneu);
+      Serial.println(receber_dados_dht11.temp_exterior);
+      Serial.println(receber_dados_dht11.humidade);
+      Serial.println(tps);
       Serial.println(rpm);
 
-      Serial.print("Max RPM: ");
-      Serial.println(maxrpm);
 
-      // Atualiza o display com o valor de RPM
-      displayRPM(rpm);
-
-      vTaskDelay(100 / portTICK_PERIOD_MS);  // Aguarda antes de atualizar novamente
+      tft.setCursor(10, 50);
+      tft.setTextSize(1);
+      tft.setTextColor(ST7735_WHITE);
+      tft.print(temp_motor);
+      tft.print((char)167);
+      tft.print("C");
+      tft.setCursor(60, 50);
+      tft.print(temp_peneu);
+      tft.print((char)167);
+      tft.print("C");
+      tft.setCursor(110, 50);
+      tft.print(receber_dados_dht11.temp_exterior);
+      tft.print((char)167);
+      tft.print("C");
+      tft.setCursor(16, 110);
+      tft.print(receber_dados_dht11.humidade);
+      tft.print("%");
+      tft.setCursor(68, 110);
+      tft.print(tps);
+      tft.print("%");
+      tft.setCursor(118, 110);
+      tft.print(rpm);
     }
+
+    Serial.println("  Tarefa: Update valores");
+    vTaskDelayUntil(&xLastWakeTime, (5000 / portTICK_PERIOD_MS));
   }
 }
 
-void displayRPM(int rpmValue) {
-  tft.fillScreen(TFT_BLACK);  // Limpa a tela
+// task para apagar valores no display
+void vApagarValoresDisplay(void *pvParameters)
+{
+  TickType_t xLastWakeTime = xTaskGetTickCount();
 
-  // Desenha o círculo do medidor
-  tft.drawCircle(centerX, centerY, radius, TFT_WHITE);
-  tft.drawCircle(centerX, centerY, radius + 5, TFT_WHITE);  // Borda extra para o medidor
+  for (;;)
+  {
+    tft.fillRect(10, 50, 42, 7, ST7735_BLACK);
+    tft.fillRect(60, 50, 42, 7, ST7735_BLACK);
+    tft.fillRect(110, 50, 42, 7, ST7735_BLACK);
+    tft.fillRect(16, 110, 18, 7, ST7735_BLACK);
+    tft.fillRect(68, 110, 18, 7, ST7735_BLACK);
+    tft.fillRect(118, 110, 18, 7, ST7735_BLACK);
 
-  // Calcula o ângulo do ponteiro baseado no valor de RPM
-  float angle = map(rpmValue, minRPM, maxRPM, -150, 150);
-  float radianAngle = angle * 0.0174533;  // Converte para radianos
-
-  // Coordenadas para a ponta do ponteiro
-  int x = centerX + radius * cos(radianAngle);
-  int y = centerY - radius * sin(radianAngle);
-
-  // Desenha o ponteiro
-  tft.drawLine(centerX, centerY, x, y, TFT_RED);
-
-  // Exibe o título "RPM" no meio da tela (acima do ponteiro)
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextSize(2);  // Ajuste o tamanho do texto conforme necessário
-  tft.setCursor(centerX - 30, centerY - 50);  // Ajuste a posição conforme necessário
-  tft.println("RPM");
-
-  // Exibe o valor atual de RPM abaixo do título
-  tft.setTextSize(3);  // Tamanho do texto maior para o valor do RPM
-  tft.setCursor(centerX - 50, centerY + 20);  // Ajuste a posição conforme necessário
-  tft.printf("%d", rpmValue);  // Mostra o valor de RPM
+    Serial.println("  Tarefa: vApagarValoresDisplay");
+    vTaskDelayUntil(&xLastWakeTime, (2000 / portTICK_PERIOD_MS));
+  }
 }
 
+// task para ler o sensor dht11
+void vLerTempHumidade (void*pvParameters)
+{
+  TickType_t xLastWakeTime = xTaskGetTickCount();
 
-// Interrupção para contar pulsos
-void IRAM_ATTR onPulse(void) {
-  pulseCount++; // Incrementa o contador de pulsos a cada pulso detectado
+  temphumidade_para_display enviar_dados_dht11;
+
+  for (;;)
+  {
+    enviar_dados_dht11.humidade = dht.readHumidity();
+    enviar_dados_dht11.temp_exterior = dht.readTemperature();
+
+    if (isnan(enviar_dados_dht11.humidade) || isnan(enviar_dados_dht11.temp_exterior))
+    {
+      Serial.println("Erro: Nao foi possivel ler o sensor DHT11!");
+    } else {
+      //xQueueSendToBack(temphumidadeQueue, &enviar_dados_dht11, 0);
+      xQueueSend(temphumidadeQueue, (void *) &enviar_dados_dht11, 0);
+      if (DEBUG == 1) {
+        Serial.print("Humidity: ");
+        Serial.print(enviar_dados_dht11.humidade);
+        Serial.print("%  Temperature: ");
+        Serial.print(enviar_dados_dht11.temp_exterior);
+        Serial.println("°C ");
+      }
+    }
+
+    Serial.println("  Tarefa: vLerTempHumidade");
+    vTaskDelayUntil(&xLastWakeTime, (500 / portTICK_PERIOD_MS));
+  }
 }
 
-void loop() {
-  // Deleta a tarefa loop padrão para usar o FreeRTOS
-  vTaskDelete(NULL);
+void vLerTempMotor (void * pvparameters)
+{
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  float tempmotor = 0, valorBruto = 0, ddP = 0;
+  for (;;)
+  {
+    //sensors.requestTemperatures();
+    //float tempmotor = sensors.getTempCByIndex(0);
+    valorBruto = analogRead(LM35PIN);
+    //Serial.println(valorBruto);
+    ddP = (valorBruto / 2048.0) * 3300; // Convesão para milivolts (ddp)
+    //Serial.println(ddP);
+    tempmotor = ddP * 0.1;
+    xQueueSendToBack(tempmotorQueue, &tempmotor, 0);
+
+    if (DEBUG == 1)
+    {
+      Serial.print("Temp Motor: ");
+      Serial.print(tempmotor);
+      Serial.println("ºC");
+    }
+
+    Serial.println("  Tarefa: vLerTempMotor");
+    vTaskDelayUntil(&xLastWakeTime, (500 / portTICK_PERIOD_MS));
+  }
+}
+
+// loop
+void loop()
+{
+  vTaskDelete(NULL);  //matar a tarefa arduino
 }

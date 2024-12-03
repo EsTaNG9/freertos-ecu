@@ -44,7 +44,7 @@
 		<link>
 			<name>libraries/Adafruit_BusIO</name>
 			<type>2</type>
-			<locationURI>ECLIPSE_HOME/arduinoPlugin/libraries/Adafruit_BusIO/1.16.1</locationURI>
+			<locationURI>ECLIPSE_HOME/arduinoPlugin/libraries/Adafruit_BusIO/1.16.2</locationURI>
 		</link>
 		<link>
 			<name>libraries/Adafruit_GFX_Library</name>
@@ -70,6 +70,11 @@
 			<name>libraries/SPIFFS</name>
 			<type>2</type>
 			<locationURI>ECLIPSE_HOME/arduinoPlugin/packages/esp32/hardware/esp32/3.0.4/libraries/SPIFFS</locationURI>
+		</link>
+		<link>
+			<name>libraries/SimplyAtomic</name>
+			<type>2</type>
+			<locationURI>ECLIPSE_HOME/arduinoPlugin/libraries/SimplyAtomic/1.0.0</locationURI>
 		</link>
 		<link>
 			<name>libraries/TFT_eSPI</name>
