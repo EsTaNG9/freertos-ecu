@@ -44,7 +44,7 @@
 		<link>
 			<name>libraries/Adafruit_BusIO</name>
 			<type>2</type>
-			<locationURI>ECLIPSE_HOME/arduinoPlugin/libraries/Adafruit_BusIO/1.16.2</locationURI>
+			<locationURI>ECLIPSE_HOME/arduinoPlugin/libraries/Adafruit_BusIO/1.16.1</locationURI>
 		</link>
 		<link>
 			<name>libraries/Adafruit_GFX_Library</name>
