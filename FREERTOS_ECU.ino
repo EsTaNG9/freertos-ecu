@@ -1,3 +1,5 @@
+#include <TFT_eSPI.h>
+#include <math.h>
 #include "Arduino.h"
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
@@ -5,9 +7,23 @@
 #include "esp_system.h"
 #include "nvs_flash.h"
 #include "esp_task_wdt.h"
-#include <TFT_eSPI.h>  // Biblioteca para o display TFT
+#include <SPI.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ILI9341.h>
 
-TFT_eSPI tft = TFT_eSPI();  // Instância do display TFT
+
+
+// Definir os terminais do LCD
+#define TFT_CS   05
+#define TFT_DC   26
+#define TFT_MOSI 23
+#define TFT_MISO 19
+#define TFT_SCLK 18
+#define TFT_RST -1 // ligar ao 3V3
+
+// Criar um objeto tft com indicação dos terminais CS e DC
+Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK,
+		TFT_RST, TFT_MISO);
 
 // Tarefas e funções
 void calculateRPM(void *pvParameters);
@@ -27,9 +43,9 @@ unsigned int maxrpm = 0;
 // Configuração para o medidor de ponteiro
 const int minRPM = 0;
 const int maxRPM = 8000;  // Máximo do medidor de RPM
-const int centerX = 120;  // Centro do medidor (ajuste conforme seu display)
-const int centerY = 160;
-const int radius = 100;
+const int centerX = 150;  // Centro do medidor (ajuste conforme seu display)
+const int centerY = 110;
+const int radius = 90;
 
 void setup() {
   // Define a prioridade máxima para a tarefa loop antes de deletá-la
@@ -46,7 +62,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(interruptPin), onPulse, FALLING);
 
   // Configuração do display TFT
-  tft.init();
+  tft.begin();
   tft.setRotation(1);
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
@@ -85,12 +101,11 @@ void calculateRPM(void *pvParameters) {
       // Atualiza o display com o valor de RPM
       displayRPM(rpm);
 
-      vTaskDelay(200 / portTICK_PERIOD_MS);  // Aguarda antes de atualizar novamente
+      vTaskDelay(100 / portTICK_PERIOD_MS);  // Aguarda antes de atualizar novamente
     }
   }
 }
 
-// Função para desenhar o medidor de RPM no display TFT
 void displayRPM(int rpmValue) {
   tft.fillScreen(TFT_BLACK);  // Limpa a tela
 
@@ -109,10 +124,18 @@ void displayRPM(int rpmValue) {
   // Desenha o ponteiro
   tft.drawLine(centerX, centerY, x, y, TFT_RED);
 
-  // Exibe o valor de RPM em texto
-  tft.setCursor(60, 250);
-  tft.printf("RPM: %d", rpmValue);
+  // Exibe o título "RPM" no meio da tela (acima do ponteiro)
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextSize(2);  // Ajuste o tamanho do texto conforme necessário
+  tft.setCursor(centerX - 30, centerY - 50);  // Ajuste a posição conforme necessário
+  tft.println("RPM");
+
+  // Exibe o valor atual de RPM abaixo do título
+  tft.setTextSize(3);  // Tamanho do texto maior para o valor do RPM
+  tft.setCursor(centerX - 50, centerY + 20);  // Ajuste a posição conforme necessário
+  tft.printf("%d", rpmValue);  // Mostra o valor de RPM
 }
+
 
 // Interrupção para contar pulsos
 void IRAM_ATTR onPulse(void) {
