@@ -102,14 +102,14 @@ void vIniciarDisplay(void *pvParameters) {
 	}
 
 	// RPM
-	altura = 20;
-	largura = 38;   // Definicao da dimensao da imagem
+	altura = 40;
+	largura = 78;   // Definicao da dimensao da imagem
 	inicio_x = 0;  // Definicao de ints temporarios
 	// Ler a linha do bitmap
 	for (linha = 0; linha < altura; linha++) {
 		// Ler coluna do bitmap
 		for (coluna = 0; coluna < largura; coluna++) {
-			tft.drawPixel(coluna + 110, linha + 80,
+			tft.drawPixel(coluna + 150, linha + 150,
 					pgm_read_word(logo_rpm + inicio_x)); // Desenhar o pixel no sitio correto
 			inicio_x++;
 		} // end pixel
