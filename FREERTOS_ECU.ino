@@ -15,7 +15,7 @@
 #define VREF_PLUS  5
 #define VREF_MINUS  0.0
 
-#define DEBUG "ON"
+#define DEBUG "OFF"
 #define DEBUG_LEVEL 2
 
 // Definir os terminais do LCD
@@ -33,6 +33,8 @@ TFT_RST, TFT_MISO);
 /* The service routine for the interrupt.  This is the interrupt that the task
  will be synchronized with. */
 void IRAM_ATTR onPulse(void);
+void coilDischargeTimer_callback(void *arg);
+//void IRAM_ATTR coilDischargeTimer(void);
 
 /* The tasks to be created. */
 //void calculateRPM(void *pvParameters);
@@ -50,10 +52,19 @@ QueueHandle_t xContadorDentes;
 QueueHandle_t xtempoUltimoDente;
 QueueHandle_t xMAP;
 
+// Timers
+/*hw_timer_t *coilTimer = NULL;
+ portMUX_TYPE coilTimerMux = portMUX_INITIALIZER_UNLOCKED;*/
+
+// Estruturas
+//struct table3D fuelTable; //16x16 fuel map
+//struct table3D ignitionTable; //16x16 ignition map
 // pin to generate interrupts
 const uint8_t interruptPin = 4;
 //const uint8_t bombaCombustivelPin = 28;
 const uint8_t MAPSensorPin = 36;
+const uint8_t bobine1Pin = 32;
+const uint8_t injetor1Pin = 33;
 
 //Configurar roda fonica
 uint16_t numRealDentes = 35;
@@ -64,7 +75,7 @@ volatile unsigned long tempoAtual = 0;
 volatile unsigned long tempoAtual_Brain = 1; // Para n dar erro no startup
 volatile unsigned long falhaAtual = 0;
 volatile unsigned long loopAtual_Brain = 1; // Para n dar erro no startup
-unsigned long tempoUltimoDente = 0; // n pode ser volatile pq quero mandar valores para a queeue
+unsigned long tempoUltimoDente = 1; // n pode ser volatile pq quero mandar valores para a queeue
 unsigned long tempoUltimoloop_Brain = 0; // n pode ser volatile pq quero mandar valores para a queeue
 volatile unsigned long tempoFiltro = 0;
 volatile unsigned long tempoPenultimoDente = 0;
@@ -74,8 +85,9 @@ volatile unsigned long tempoPrimeiroDenteMenosUm = 0;
 volatile unsigned long tempoPrimeiroDente = 0;
 unsigned long tempoPorGrau = 0; // n pode ser volatile pq quero mandar valores para a queeue
 bool sincronizacao = false;
+volatile bool descargaBobine = LOW;
 volatile uint32_t contadorrevolucoes = 0;
-uint64_t tempoEntreDentes = 0;
+uint64_t tempoEntreDentes = 1;
 uint64_t atualRPS = 0;
 uint64_t atualRPM = 0;
 bool bombaCombustivel = false;
@@ -93,9 +105,19 @@ void setup(void) {
 
 	//Interrupção Hall Sensor
 	pinMode(interruptPin, INPUT);
-	pinMode(MAPSensorPin, OUTPUT);
+	pinMode(bobine1Pin, OUTPUT);
+	pinMode(MAPSensorPin, INPUT);
 	attachInterrupt(digitalPinToInterrupt(interruptPin), onPulse, RISING);
 
+	//timers
+	//coilTimer = timerBegin(1000000);
+	//timerAttachInterrupt(coilTimer, &coilDischargeTimer);
+	esp_timer_handle_t coilTimer;
+	esp_timer_create_args_t coilTimer_args = { .callback = &coilDischargeTimer_callback, .arg = NULL, .name = "coilTimer" };
+	ESP_ERROR_CHECK(esp_timer_create(&coilTimer_args, &coilTimer));
+	ESP_ERROR_CHECK(esp_timer_start_periodic(coilTimer, 1000000)); // 5 seconds (5,000,000 µs)
+
+	//queues
 	xRPM = xQueueCreate(5, sizeof(uint16_t));
 	xContadorDentes = xQueueCreate(5, sizeof(uint8_t));
 	xtempoUltimoDente = xQueueCreate(5, sizeof(long));
@@ -145,7 +167,11 @@ void vBrain(void *pvParameters) {
 
 		if (sincronizacao && (atualRPM > 0)) {
 
+			// Podemos configurar a ignição
+
 		}
+
+		//Serial.println(atualRPM);
 
 		//int anguloCambota = getCrankAngle(tempoPorGrau);
 
@@ -207,7 +233,24 @@ void getLowRPM(void) {
 	xQueueSendToFront(xRPM, &rpm_temporary, 0);
 
 	//Serial.println(rpm_temporary);
+}
 
+/*void IRAM_ATTR coilDischargeTimer(void) {
+ /*portENTER_CRITICAL_ISR(&coilTimerMux);
+
+ descargaBobine = HIGH;
+ digitalWrite(bobine1Pin, descargaBobine);
+
+ portEXIT_CRITICAL_ISR(&coilTimerMux);*/
+//}
+void coilDischargeTimer_callback(void *arg) {
+
+	xQueuePeek(xRPM, &atualRPM, (TickType_t) 10);
+
+	Serial.print("Número total de dentes: ");
+	Serial.println(numRealDentes);
+	Serial.print("RPM: ");
+	Serial.println(atualRPM);
 }
 
 // Interrupção gerada na transição do sinal do sensor de Hall
@@ -219,7 +262,6 @@ void IRAM_ATTR onPulse(void) {
 	falhaAtual = tempoAtual - tempoUltimoDente;
 
 	if (falhaAtual < tempoFiltro) {
-		//return; //Debounce
 		//Serial.println("Debounce");
 	} else {
 
@@ -235,12 +277,23 @@ void IRAM_ATTR onPulse(void) {
 			tempoPrimeiroDente = tempoAtual;
 			sincronizacao = true;
 			contadorrevolucoes++;
+			descargaBobine = LOW;
+			digitalWrite(bobine1Pin, descargaBobine);
 		} else {
 			tempoFiltro = falhaAtual * 0.25; // 25% de filtro
 			contadorDentes++;
 			//Serial.print("Dente: ");
 			//Serial.println(contadorDentes);
 			xQueueSendToFrontFromISR(xContadorDentes, &contadorDentes, &xHigherPriorityTaskWoken);
+		}
+
+		if (contadorDentes == 5) {
+			//Buscar o valor da ignição
+			/*float valorignicao = 7;
+			 float tempoPorGrau = (tempoUltimoDente / anguloPorDente);
+			 float anguloDisparo = (desvioPrimeiroDenteTDC - valorignicao) - getCrankAngle(tempoPorGrau);
+			 timerAlarm(coilTimer, (anguloDisparo * tempoPorGrau), false, 0);*/
+
 		}
 
 		tempoPenultimoDente = tempoUltimoDente;
@@ -275,21 +328,21 @@ void vInitDisplay(void *pvParameters) {
 
 void vGetMAP(void *pvParameters) {
 	while (true) {
-		uint8_t temp_valorAnalogico;
-		uint8_t temp_ddpAnalogica;
-		uint8_t temp_MAPValue;
+		/*uint8_t temp_valorAnalogico;
+		 uint8_t temp_ddpAnalogica;
+		 uint8_t temp_MAPValue;
 
-		temp_valorAnalogico = analogRead(MAPSensorPin);
-		temp_ddpAnalogica = temp_valorAnalogico * (VREF_PLUS - VREF_MINUS) / (pow(2.0, (float) ADC_RESOLUTION)) + VREF_MINUS;
+		 temp_valorAnalogico = analogRead(MAPSensorPin);
+		 temp_ddpAnalogica = temp_valorAnalogico * (VREF_PLUS - VREF_MINUS) / (pow(2.0, (float) ADC_RESOLUTION)) + VREF_MINUS;
 
-		temp_MAPValue = 45.2042 * temp_ddpAnalogica;
+		 temp_MAPValue = 45.2042 * temp_ddpAnalogica;
 
-		xQueueSendToFront(xMAP, &temp_MAPValue, 0);
+		 xQueueSendToFront(xMAP, &temp_MAPValue, 0);
 
-		if ( DEBUG == "ON" && DEBUG_LEVEL <= 2) {
-			Serial.print("Correu a task: ");
-			Serial.println(pcTaskGetTaskName(NULL));
-		}
+		 if ( DEBUG == "ON" && DEBUG_LEVEL <= 2) {
+		 Serial.print("Correu a task: ");
+		 Serial.println(pcTaskGetTaskName(NULL));
+		 }*/
 		vTaskDelay(200 / portTICK_PERIOD_MS);
 	}
 }
