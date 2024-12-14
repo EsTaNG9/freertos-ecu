@@ -87,9 +87,7 @@ unsigned long tempoPorGrau = 0; // n pode ser volatile pq quero mandar valores p
 bool sincronizacao = false;
 volatile bool descargaBobine = LOW;
 volatile uint32_t contadorrevolucoes = 0;
-uint64_t tempoEntreDentes = 1;
 uint64_t atualRPS = 0;
-uint64_t atualRPM = 0;
 bool bombaCombustivel = false;
 //unsigned long tempoDecorrido = 0;
 
@@ -118,10 +116,10 @@ void setup(void) {
 	ESP_ERROR_CHECK(esp_timer_start_periodic(coilTimer, 1000000)); // 5 seconds (5,000,000 µs)
 
 	//queues
-	xRPM = xQueueCreate(5, sizeof(uint16_t));
-	xContadorDentes = xQueueCreate(5, sizeof(uint8_t));
-	xtempoUltimoDente = xQueueCreate(5, sizeof(long));
-	xMAP = xQueueCreate(5, sizeof(float));
+	xRPM = xQueueCreate(1, sizeof(uint16_t));
+	xContadorDentes = xQueueCreate(1, sizeof(uint8_t));
+	xtempoUltimoDente = xQueueCreate(1, sizeof(long));
+	xMAP = xQueueCreate(1, sizeof(float));
 
 	xTaskCreatePinnedToCore(vInitDisplay, "vInitDisplay", 2048, NULL, 1, NULL, 1);
 	xTaskCreatePinnedToCore(vBrain, "vBrain", 4096, NULL, 1, NULL, 1);
@@ -134,9 +132,11 @@ void setup(void) {
 }
 
 void vBrain(void *pvParameters) {
-	while (true) {
-		unsigned long temp_tempoUltimoDente;
+	portBASE_TYPE xStatus;
+	unsigned long temp_tempoUltimoDente = 0;
+	uint64_t temp_atualRPM = 0, atualRPM = 0;
 
+	while (true) {
 		//loopAtual_Brain = tempoAtual_Brain - tempoUltimoloop_Brain;
 		loopAtual_Brain = tempoAtual_Brain;
 		tempoAtual_Brain = micros();
@@ -151,7 +151,10 @@ void vBrain(void *pvParameters) {
 		if ((tempoParaUltimoDente < TEMPO_MAXIMO_MOTOR_MORRER) || (tempoParaUltimoDente > loopAtual_Brain)) {
 			int ultimaRPM = atualRPM;
 			getLowRPM();
-			xQueuePeek(xRPM, &atualRPM, (TickType_t) 10); // Para calcular RPS
+			if (xQueuePeek(xRPM, &temp_atualRPM, (TickType_t) 250) == pdPASS) { // Para calcular RPS
+				atualRPM = temp_atualRPM;
+			}
+			//xQueuePeek(xRPM, &atualRPM, (TickType_t) 10);
 			if (bombaCombustivel == false) {
 				//digitalWrite(bombaCombustivel, HIGH);
 				bombaCombustivel = true;
@@ -226,11 +229,15 @@ void getLowRPM(void) {
 	//Maxima prioridade ou desativar interrupcoes
 	//taskDISABLE_INTERRUPTS();
 	//tempoEntreDentes = (tempoUltimoDente - tempoPenultimoDente);
-	tempoEntreDentes = (tempoUltimoDente - tempoPenultimoDente);
+	uint64_t tempoEntreDentes = (tempoUltimoDente - tempoPenultimoDente);
 	uint64_t rpm_temporary = (((60000000 / (tempoEntreDentes * 36)) + 1) * 2); //+1 pq falha, n sei pk x2??
 	//taskENABLE_INTERRUPTS();
 	//Prioridade normal
-	xQueueSendToFront(xRPM, &rpm_temporary, 0);
+
+	if (xQueueOverwrite(xRPM, &rpm_temporary) == pdPASS) {
+		//printf("Value %d sent to the queue\n", rpm_temporary);
+	}
+	//xQueueSendToFront(xRPM, &rpm_temporary, 0);
 
 	//Serial.println(rpm_temporary);
 }
@@ -244,13 +251,18 @@ void getLowRPM(void) {
  portEXIT_CRITICAL_ISR(&coilTimerMux);*/
 //}
 void coilDischargeTimer_callback(void *arg) {
+	uint64_t temp_atualRPM = 0;
 
-	xQueuePeek(xRPM, &atualRPM, (TickType_t) 10);
+	if (xQueuePeek(xRPM, &temp_atualRPM, (TickType_t) 250) == pdPASS) {
+		//atualRPM = temp_atualRPM;
+	}
+
+	//xQueuePeek(xRPM, &atualRPM, (TickType_t) 10);
 
 	Serial.print("Número total de dentes: ");
 	Serial.println(numRealDentes);
 	Serial.print("RPM: ");
-	Serial.println(atualRPM);
+	Serial.println(temp_atualRPM);
 }
 
 // Interrupção gerada na transição do sinal do sensor de Hall
@@ -284,7 +296,11 @@ void IRAM_ATTR onPulse(void) {
 			contadorDentes++;
 			//Serial.print("Dente: ");
 			//Serial.println(contadorDentes);
-			xQueueSendToFrontFromISR(xContadorDentes, &contadorDentes, &xHigherPriorityTaskWoken);
+			//xQueueSendToFrontFromISR(xContadorDentes, &contadorDentes, &xHigherPriorityTaskWoken);
+			if (xQueueOverwriteFromISR(xContadorDentes, &contadorDentes, &xHigherPriorityTaskWoken) == pdPASS) {
+				//printf("Value %d sent to the queue\n", contadorDentes);
+			}
+
 		}
 
 		if (contadorDentes == 5) {
@@ -298,7 +314,7 @@ void IRAM_ATTR onPulse(void) {
 
 		tempoPenultimoDente = tempoUltimoDente;
 		tempoUltimoDente = tempoAtual;
-		xQueueSendToFrontFromISR(xtempoUltimoDente, &tempoUltimoDente, &xHigherPriorityTaskWoken);
+		xQueueOverwriteFromISR(xtempoUltimoDente, &tempoUltimoDente, &xHigherPriorityTaskWoken);
 
 		//Serial.println(tempoUltimoDente);
 	}
