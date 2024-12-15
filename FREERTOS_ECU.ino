@@ -50,6 +50,7 @@ void getLowRPM(void);
 QueueHandle_t xRPM;
 QueueHandle_t xContadorDentes;
 QueueHandle_t xtempoUltimoDente;
+QueueHandle_t xtempoPenultimoDente;
 QueueHandle_t xMAP;
 
 // Timers
@@ -74,11 +75,7 @@ uint16_t desvioPrimeiroDenteTDC = 180; //Desvio real do TDC 1ºcil do primeiro d
 volatile unsigned long tempoAtual = 0;
 volatile unsigned long tempoAtual_Brain = 1; // Para n dar erro no startup
 volatile unsigned long falhaAtual = 0;
-volatile unsigned long loopAtual_Brain = 1; // Para n dar erro no startup
-unsigned long tempoUltimoDente = 1; // n pode ser volatile pq quero mandar valores para a queeue
-unsigned long tempoUltimoloop_Brain = 0; // n pode ser volatile pq quero mandar valores para a queeue
 volatile unsigned long tempoFiltro = 0;
-volatile unsigned long tempoPenultimoDente = 0;
 volatile unsigned long falhaObjetivo = 0;
 uint16_t contadorDentes = 0; // n pode ser volatile pq quero mandar valores para a queeue
 volatile unsigned long tempoPrimeiroDenteMenosUm = 0;
@@ -119,6 +116,7 @@ void setup(void) {
 	xRPM = xQueueCreate(1, sizeof(uint16_t));
 	xContadorDentes = xQueueCreate(1, sizeof(uint8_t));
 	xtempoUltimoDente = xQueueCreate(1, sizeof(long));
+	xtempoPenultimoDente = xQueueCreate(1, sizeof(long));
 	xMAP = xQueueCreate(1, sizeof(float));
 
 	xTaskCreatePinnedToCore(vInitDisplay, "vInitDisplay", 2048, NULL, 1, NULL, 1);
@@ -133,8 +131,10 @@ void setup(void) {
 
 void vBrain(void *pvParameters) {
 	portBASE_TYPE xStatus;
-	unsigned long temp_tempoUltimoDente = 0;
+	unsigned long temp_tempoUltimoDente = 0, tempoUltimoDente = 1;
 	uint64_t temp_atualRPM = 0, atualRPM = 0;
+	volatile unsigned long loopAtual_Brain = 1; // Para n dar erro no startup
+	unsigned long tempoUltimoloop_Brain = 0; // n pode ser volatile pq quero mandar valores para a queeue
 
 	while (true) {
 		//loopAtual_Brain = tempoAtual_Brain - tempoUltimoloop_Brain;
@@ -144,6 +144,9 @@ void vBrain(void *pvParameters) {
 		//xQueuePeek(xtempoUltimoDente, &temp_tempoUltimoDente, 0);
 		//Serial.println(temp_tempoUltimoDente);
 		//unsigned long tempoParaUltimoDente = (loopAtual_Brain - temp_tempoUltimoDente);
+		if (xQueuePeek(xtempoUltimoDente, &temp_tempoUltimoDente, (TickType_t) 250) == pdPASS) {
+			//tempoUltimoDente = temp_tempoUltimoDente;
+		}
 		unsigned long tempoParaUltimoDente = (loopAtual_Brain - tempoUltimoDente);
 
 		//Serial.println(tempoParaUltimoDente);
@@ -200,6 +203,7 @@ void vBrain(void *pvParameters) {
 /* Nota: n estou a conseguir implementar as queeue peeks sem crashar cpu*/
 int getCrankAngle(int tempoPorGrau) {
 	unsigned long temp_tempoUltimoDente;
+	unsigned long tempoUltimoDente = 1; // n pode ser volatile pq quero mandar valores para a queeue
 	int temp_contadorDentes;
 
 // Prioridade máxima
@@ -225,20 +229,29 @@ int getCrankAngle(int tempoPorGrau) {
 }
 
 void getLowRPM(void) {
-
+	unsigned long temp_tempoUltimoDente = 1, temp_tempoPenultimoDente = 0;
 	//Maxima prioridade ou desativar interrupcoes
 	//taskDISABLE_INTERRUPTS();
 	//tempoEntreDentes = (tempoUltimoDente - tempoPenultimoDente);
-	uint64_t tempoEntreDentes = (tempoUltimoDente - tempoPenultimoDente);
-	uint64_t rpm_temporary = (((60000000 / (tempoEntreDentes * 36)) + 1) * 2); //+1 pq falha, n sei pk x2??
+	if (xQueuePeek(xtempoUltimoDente, &temp_tempoUltimoDente, (TickType_t) 250) == pdPASS && xQueuePeek(xtempoPenultimoDente, &temp_tempoPenultimoDente, (TickType_t) 250) == pdPASS) { // Para calcular RPS
+		uint64_t tempoEntreDentes = (temp_tempoUltimoDente - temp_tempoPenultimoDente);
+		uint64_t rpm_temporary = (((60000000 / (tempoEntreDentes * 36)) + 1) * 2); //+1 pq falha, n sei pk x2??
+
+		if (xQueueOverwrite(xRPM, &rpm_temporary) == pdPASS) {
+			//printf("Value %d sent to the queue\n", rpm_temporary);
+
+		}
+	}
+
+	//uint64_t tempoEntreDentes = (tempoUltimoDente - tempoPenultimoDente);
+	//uint64_t rpm_temporary = (((60000000 / (tempoEntreDentes * 36)) + 1) * 2); //+1 pq falha, n sei pk x2??
 	//taskENABLE_INTERRUPTS();
 	//Prioridade normal
 
-	if (xQueueOverwrite(xRPM, &rpm_temporary) == pdPASS) {
-		//printf("Value %d sent to the queue\n", rpm_temporary);
-	}
+	/*if (xQueueOverwrite(xRPM, &rpm_temporary) == pdPASS) {
+	 //printf("Value %d sent to the queue\n", rpm_temporary);
+	 }*/
 	//xQueueSendToFront(xRPM, &rpm_temporary, 0);
-
 	//Serial.println(rpm_temporary);
 }
 
@@ -267,7 +280,7 @@ void coilDischargeTimer_callback(void *arg) {
 
 // Interrupção gerada na transição do sinal do sensor de Hall
 void IRAM_ATTR onPulse(void) {
-
+	unsigned long tempoUltimoDente = 1, tempoPenultimoDente = 0; // n pode ser volatile pq quero mandar valores para a queeue
 	BaseType_t xHigherPriorityTaskWoken;
 
 	tempoAtual = micros();
@@ -314,7 +327,10 @@ void IRAM_ATTR onPulse(void) {
 
 		tempoPenultimoDente = tempoUltimoDente;
 		tempoUltimoDente = tempoAtual;
-		xQueueOverwriteFromISR(xtempoUltimoDente, &tempoUltimoDente, &xHigherPriorityTaskWoken);
+		if (xQueueOverwriteFromISR(xtempoUltimoDente, &tempoUltimoDente, &xHigherPriorityTaskWoken) == pdPASS && xQueueOverwriteFromISR(xtempoPenultimoDente, &tempoPenultimoDente, &xHigherPriorityTaskWoken) == pdPASS) {
+			//printf("Value %d sent to the queue\n", tempoUltimoDente);
+		}
+		//xQueueOverwriteFromISR(xtempoUltimoDente, &tempoUltimoDente, &xHigherPriorityTaskWoken);
 
 		//Serial.println(tempoUltimoDente);
 	}
