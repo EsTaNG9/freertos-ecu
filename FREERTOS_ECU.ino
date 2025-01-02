@@ -40,7 +40,7 @@ void coilDischargeTimer_callback(void *arg);
 //void calculateRPM(void *pvParameters);
 void vInitDisplay(void *pvParameters);
 void vBrain(void *pvParameters);
-void vGetMAP(void *pvParameters);
+//void vGetMAP(void *pvParameters);
 
 //Declarar funcoes
 int getCrankAngle(int);
@@ -52,10 +52,12 @@ QueueHandle_t xContadorDentes;
 QueueHandle_t xtempoUltimoDente;
 QueueHandle_t xtempoPenultimoDente;
 QueueHandle_t xMAP;
+QueueHandle_t xtempoPrimeiroDente;
+QueueHandle_t xtempoFiltro;
+QueueHandle_t xtempoPrimeiroDenteMenosUm;
 
 // Timers
-/*hw_timer_t *coilTimer = NULL;
- portMUX_TYPE coilTimerMux = portMUX_INITIALIZER_UNLOCKED;*/
+esp_timer_handle_t coilTimer; //Definir a handle globalmente para a poder chamar na interrupcao
 
 // Estruturas
 //struct table3D fuelTable; //16x16 fuel map
@@ -72,14 +74,10 @@ uint16_t numRealDentes = 35;
 uint16_t anguloPorDente = 360 / 36;
 uint16_t desvioPrimeiroDenteTDC = 180; //Desvio real do TDC 1ºcil do primeiro dente da roda
 
-volatile unsigned long tempoAtual = 0;
+//volatile unsigned long tempoAtual = 0;
+//QueueHandle_t xtempoAtual;
+
 volatile unsigned long tempoAtual_Brain = 1; // Para n dar erro no startup
-volatile unsigned long falhaAtual = 0;
-volatile unsigned long tempoFiltro = 0;
-volatile unsigned long falhaObjetivo = 0;
-uint16_t contadorDentes = 0; // n pode ser volatile pq quero mandar valores para a queeue
-volatile unsigned long tempoPrimeiroDenteMenosUm = 0;
-volatile unsigned long tempoPrimeiroDente = 0;
 unsigned long tempoPorGrau = 0; // n pode ser volatile pq quero mandar valores para a queeue
 bool sincronizacao = false;
 volatile bool descargaBobine = LOW;
@@ -107,21 +105,26 @@ void setup(void) {
 	//timers
 	//coilTimer = timerBegin(1000000);
 	//timerAttachInterrupt(coilTimer, &coilDischargeTimer);
-	esp_timer_handle_t coilTimer;
-	esp_timer_create_args_t coilTimer_args = { .callback = &coilDischargeTimer_callback, .arg = NULL, .name = "coilTimer" };
+	esp_timer_create_args_t coilTimer_args; //= { .callback = &coilDischargeTimer_callback, .arg = NULL, .name = "coilTimer" };
+	coilTimer_args.arg = NULL, coilTimer_args.callback = &coilDischargeTimer_callback, coilTimer_args.name = "coilTimer";
 	ESP_ERROR_CHECK(esp_timer_create(&coilTimer_args, &coilTimer));
 	ESP_ERROR_CHECK(esp_timer_start_periodic(coilTimer, 1000000)); // 5 seconds (5,000,000 µs)
 
 	//queues
 	xRPM = xQueueCreate(1, sizeof(uint16_t));
-	xContadorDentes = xQueueCreate(1, sizeof(uint8_t));
+	xContadorDentes = xQueueCreate(1, sizeof(uint16_t));
 	xtempoUltimoDente = xQueueCreate(1, sizeof(long));
 	xtempoPenultimoDente = xQueueCreate(1, sizeof(long));
+	xtempoFiltro = xQueueCreate(1, sizeof(long));
+	xtempoPrimeiroDenteMenosUm = xQueueCreate(1, sizeof(long));
 	xMAP = xQueueCreate(1, sizeof(float));
+	xtempoPrimeiroDente = xQueueCreate(1, sizeof(float));
+
+	//xtempoAtual = xQueueCreate(1, sizeof(float));
 
 	xTaskCreatePinnedToCore(vInitDisplay, "vInitDisplay", 2048, NULL, 1, NULL, 1);
 	xTaskCreatePinnedToCore(vBrain, "vBrain", 4096, NULL, 1, NULL, 1);
-	xTaskCreatePinnedToCore(vGetMAP, "vGetMAP", 512, NULL, 1, NULL, 1);
+	//xTaskCreatePinnedToCore(vGetMAP, "vGetMAP", 512, NULL, 1, NULL, 1);
 
 	if (DEBUG == "ON" && DEBUG_LEVEL <= 3) {
 		Serial.println("Setup acabou de correr");
@@ -144,12 +147,12 @@ void vBrain(void *pvParameters) {
 		//xQueuePeek(xtempoUltimoDente, &temp_tempoUltimoDente, 0);
 		//Serial.println(temp_tempoUltimoDente);
 		//unsigned long tempoParaUltimoDente = (loopAtual_Brain - temp_tempoUltimoDente);
-		if (xQueuePeek(xtempoUltimoDente, &temp_tempoUltimoDente, (TickType_t) 250) == pdPASS) {
+		if (xQueuePeek(xtempoUltimoDente, &tempoUltimoDente, (TickType_t) 250) == pdPASS) {
 			//tempoUltimoDente = temp_tempoUltimoDente;
 		}
 		unsigned long tempoParaUltimoDente = (loopAtual_Brain - tempoUltimoDente);
 
-		//Serial.println(tempoParaUltimoDente);
+		//Serial.println("Brain: RUNNING");
 
 		if ((tempoParaUltimoDente < TEMPO_MAXIMO_MOTOR_MORRER) || (tempoParaUltimoDente > loopAtual_Brain)) {
 			int ultimaRPM = atualRPM;
@@ -162,13 +165,15 @@ void vBrain(void *pvParameters) {
 				//digitalWrite(bombaCombustivel, HIGH);
 				bombaCombustivel = true;
 			} //Check if the fuel pump is on and turn it on if it isn't.
-			atualRPS = ldiv(1000000, (loopAtual_Brain - tempoUltimoloop_Brain)).quot * (atualRPM - ultimaRPM); //This is the RPM per second that the engine has accelerated/decelleratedin the last loop
+			  //atualRPS = ldiv(1000000, (loopAtual_Brain - tempoUltimoloop_Brain)).quot * (atualRPM - ultimaRPM); //This is the RPM per second that the engine has accelerated/decelleratedin the last loop
+			  //Serial.println("Brain: ENGINE RUNNING");
 		} else {
 			atualRPM = 0;
 			contadorrevolucoes = 0;
 			//bombaCombustivel = false;
 			sincronizacao = false;
 			atualRPS = 0;
+			//Serial.println("Brain: ENGINE DEAD");
 		}
 
 		if (sincronizacao && (atualRPM > 0)) {
@@ -207,12 +212,12 @@ int getCrankAngle(int tempoPorGrau) {
 	int temp_contadorDentes;
 
 // Prioridade máxima
-	//xQueuePeek(xContadorDentes, &temp_contadorDentes, (TickType_t) 10); //portMAX_DELAY
+	xQueuePeek(xContadorDentes, &temp_contadorDentes, (TickType_t) 10); //portMAX_DELAY
 	//xQueuePeek(xtempoUltimoDente, &temp_tempoUltimoDente, (TickType_t) 10);
 	//Prioridade normal
 
 	//int anguloCambota = ((temp_contadorDentes - 1) * anguloPorDente) + desvioPrimeiroDenteTDC;
-	int anguloCambota = ((contadorDentes - 1) * anguloPorDente) + desvioPrimeiroDenteTDC;
+	int anguloCambota = ((temp_contadorDentes - 1) * anguloPorDente) + desvioPrimeiroDenteTDC;
 
 	//Estimar o num de graus desde o ultimo dente
 	//long tempoDecorridoDesdeUltimoDente = micros() - temp_tempoUltimoDente;
@@ -233,28 +238,35 @@ void getLowRPM(void) {
 	//Maxima prioridade ou desativar interrupcoes
 	//taskDISABLE_INTERRUPTS();
 	//tempoEntreDentes = (tempoUltimoDente - tempoPenultimoDente);
-	if (xQueuePeek(xtempoUltimoDente, &temp_tempoUltimoDente, (TickType_t) 250) == pdPASS && xQueuePeek(xtempoPenultimoDente, &temp_tempoPenultimoDente, (TickType_t) 250) == pdPASS) { // Para calcular RPS
-		uint64_t tempoEntreDentes = (temp_tempoUltimoDente - temp_tempoPenultimoDente);
+	//if (xQueuePeek(xtempoUltimoDente, &temp_tempoUltimoDente, (TickType_t) 250) == pdPASS && xQueuePeek(xtempoPenultimoDente, &temp_tempoPenultimoDente, (TickType_t) 250) == pdPASS) { // Para calcular RPS
+	xQueuePeek(xtempoUltimoDente, &temp_tempoUltimoDente, (TickType_t) 25);
+	xQueuePeek(xtempoPenultimoDente, &temp_tempoPenultimoDente, (TickType_t) 25);
+	uint64_t tempoEntreDentes = (temp_tempoUltimoDente - temp_tempoPenultimoDente);
+	if (tempoEntreDentes == 0) {
+		Serial.println("tempoEntreDentes: 0");
+		Serial.print("temp_tempoUltimoDente: ");
+		Serial.println(temp_tempoUltimoDente);
+		Serial.print("temp_tempoPenultimoDente: ");
+		Serial.println(temp_tempoPenultimoDente);
+	} else {
 		uint64_t rpm_temporary = (((60000000 / (tempoEntreDentes * 36)) + 1) * 2); //+1 pq falha, n sei pk x2??
-
 		if (xQueueOverwrite(xRPM, &rpm_temporary) == pdPASS) {
-			//printf("Value %d sent to the queue\n", rpm_temporary);
-
 		}
 	}
 
-	//uint64_t tempoEntreDentes = (tempoUltimoDente - tempoPenultimoDente);
-	//uint64_t rpm_temporary = (((60000000 / (tempoEntreDentes * 36)) + 1) * 2); //+1 pq falha, n sei pk x2??
-	//taskENABLE_INTERRUPTS();
-	//Prioridade normal
-
-	/*if (xQueueOverwrite(xRPM, &rpm_temporary) == pdPASS) {
-	 //printf("Value %d sent to the queue\n", rpm_temporary);
-	 }*/
-	//xQueueSendToFront(xRPM, &rpm_temporary, 0);
-	//Serial.println(rpm_temporary);
 }
 
+//uint64_t tempoEntreDentes = (tempoUltimoDente - tempoPenultimoDente);
+//uint64_t rpm_temporary = (((60000000 / (tempoEntreDentes * 36)) + 1) * 2); //+1 pq falha, n sei pk x2??
+//taskENABLE_INTERRUPTS();
+//Prioridade normal
+
+/*if (xQueueOverwrite(xRPM, &rpm_temporary) == pdPASS) {
+ //printf("Value %d sent to the queue\n", rpm_temporary);
+ }*/
+//xQueueSendToFront(xRPM, &rpm_temporary, 0);
+//Serial.println(rpm_temporary);
+//}
 /*void IRAM_ATTR coilDischargeTimer(void) {
  /*portENTER_CRITICAL_ISR(&coilTimerMux);
 
@@ -280,9 +292,31 @@ void coilDischargeTimer_callback(void *arg) {
 
 // Interrupção gerada na transição do sinal do sensor de Hall
 void IRAM_ATTR onPulse(void) {
-	unsigned long tempoUltimoDente = 1, tempoPenultimoDente = 0; // n pode ser volatile pq quero mandar valores para a queeue
+	unsigned long tempoUltimoDente = 1, tempoPenultimoDente = 0, tempoAtual = 0, VALOR_QUEUE = 0, falhaAtual = 0, falhaObjetivo = 0, tempoPrimeiroDente = 0, tempoFiltro = 0, tempoPrimeiroDenteMenosUm = 0; // n pode ser volatile pq quero mandar valores para a queeue
 	BaseType_t xHigherPriorityTaskWoken;
+	uint16_t contadorDentes = 35, VALOR_QUEUE_INT = 0;
 
+	if (xQueueReceiveFromISR(xtempoUltimoDente, &VALOR_QUEUE, &xHigherPriorityTaskWoken) == pdPASS) {
+		tempoUltimoDente = VALOR_QUEUE;
+		// Push it back to the queue
+		xQueueSendFromISR(xtempoUltimoDente, &tempoUltimoDente, &xHigherPriorityTaskWoken);
+	}
+	if (xQueueReceiveFromISR(xtempoPenultimoDente, &VALOR_QUEUE, &xHigherPriorityTaskWoken) == pdPASS) {
+		tempoPenultimoDente = VALOR_QUEUE;
+		// Push it back to the queue
+		xQueueSendFromISR(xtempoPenultimoDente, &tempoPenultimoDente, &xHigherPriorityTaskWoken);
+	}
+	if (xQueueReceiveFromISR(xtempoFiltro, &VALOR_QUEUE, &xHigherPriorityTaskWoken) == pdPASS) {
+		tempoFiltro = VALOR_QUEUE;
+		// Push it back to the queue
+		xQueueSendFromISR(xtempoFiltro, &tempoFiltro, &xHigherPriorityTaskWoken);
+	}
+
+	if (xQueueReceiveFromISR(xContadorDentes, &VALOR_QUEUE_INT, &xHigherPriorityTaskWoken) == pdPASS) {
+		contadorDentes = VALOR_QUEUE_INT;
+		// Push it back to the queue
+		xQueueSendFromISR(xContadorDentes, &contadorDentes, &xHigherPriorityTaskWoken);
+	}
 	tempoAtual = micros();
 	falhaAtual = tempoAtual - tempoUltimoDente;
 
@@ -297,6 +331,11 @@ void IRAM_ATTR onPulse(void) {
 		falhaObjetivo = 1.5 * (tempoUltimoDente - tempoPenultimoDente);
 
 		if (falhaAtual > falhaObjetivo || contadorDentes > numRealDentes) {
+			if (xQueueReceiveFromISR(xtempoPrimeiroDente, &VALOR_QUEUE, &xHigherPriorityTaskWoken) == pdPASS) {
+				tempoPrimeiroDente = VALOR_QUEUE;
+				// Push it back to the queue
+				xQueueSendFromISR(xtempoPrimeiroDente, &tempoPrimeiroDente, &xHigherPriorityTaskWoken);
+			}
 			contadorDentes = 1;
 			tempoPrimeiroDenteMenosUm = tempoPrimeiroDente;
 			tempoPrimeiroDente = tempoAtual;
@@ -304,25 +343,28 @@ void IRAM_ATTR onPulse(void) {
 			contadorrevolucoes++;
 			descargaBobine = LOW;
 			digitalWrite(bobine1Pin, descargaBobine);
+			xQueueOverwriteFromISR(xtempoPrimeiroDenteMenosUm, &tempoPrimeiroDenteMenosUm, &xHigherPriorityTaskWoken);
 		} else {
 			tempoFiltro = falhaAtual * 0.25; // 25% de filtro
 			contadorDentes++;
-			//Serial.print("Dente: ");
-			//Serial.println(contadorDentes);
+			/*Serial.print("counter 1.5: ");
+			 Serial.println(contadorDentes);*/
+			xQueueOverwriteFromISR(xtempoFiltro, &tempoFiltro, &xHigherPriorityTaskWoken);
 			//xQueueSendToFrontFromISR(xContadorDentes, &contadorDentes, &xHigherPriorityTaskWoken);
-			if (xQueueOverwriteFromISR(xContadorDentes, &contadorDentes, &xHigherPriorityTaskWoken) == pdPASS) {
-				//printf("Value %d sent to the queue\n", contadorDentes);
-			}
-
 		}
 
-		if (contadorDentes == 5) {
-			//Buscar o valor da ignição
-			/*float valorignicao = 7;
+		if (xQueueOverwriteFromISR(xContadorDentes, &contadorDentes, &xHigherPriorityTaskWoken) == pdPASS) {
+			//printf("Value %d sent to the queue\n", contadorDentes);
+		}
+
+		if (contadorDentes == 3) {
+			/*//Buscar o valor da ignição
+			 float valorignicao = 7;
 			 float tempoPorGrau = (tempoUltimoDente / anguloPorDente);
 			 float anguloDisparo = (desvioPrimeiroDenteTDC - valorignicao) - getCrankAngle(tempoPorGrau);
-			 timerAlarm(coilTimer, (anguloDisparo * tempoPorGrau), false, 0);*/
-
+			 //timerAlarm(coilTimer, (anguloDisparo * tempoPorGrau), false, 0);
+			 esp_timer_start_once(coilTimer, long(anguloDisparo * tempoPorGrau));
+			 Serial.println("TIMER HAS BEEN TRIGGERED!!!!!");*/
 		}
 
 		tempoPenultimoDente = tempoUltimoDente;
@@ -331,8 +373,8 @@ void IRAM_ATTR onPulse(void) {
 			//printf("Value %d sent to the queue\n", tempoUltimoDente);
 		}
 		//xQueueOverwriteFromISR(xtempoUltimoDente, &tempoUltimoDente, &xHigherPriorityTaskWoken);
-
-		//Serial.println(tempoUltimoDente);
+		/*Serial.print("counter 3: ");
+		 Serial.println(contadorDentes);*/
 	}
 }
 
@@ -358,28 +400,28 @@ void vInitDisplay(void *pvParameters) {
 	}
 }
 
-void vGetMAP(void *pvParameters) {
-	while (true) {
-		/*uint8_t temp_valorAnalogico;
-		 uint8_t temp_ddpAnalogica;
-		 uint8_t temp_MAPValue;
+/*void vGetMAP(void *pvParameters) {
+ while (true) {
+ /*uint8_t temp_valorAnalogico;
+ uint8_t temp_ddpAnalogica;
+ uint8_t temp_MAPValue;
 
-		 temp_valorAnalogico = analogRead(MAPSensorPin);
-		 temp_ddpAnalogica = temp_valorAnalogico * (VREF_PLUS - VREF_MINUS) / (pow(2.0, (float) ADC_RESOLUTION)) + VREF_MINUS;
+ temp_valorAnalogico = analogRead(MAPSensorPin);
+ temp_ddpAnalogica = temp_valorAnalogico * (VREF_PLUS - VREF_MINUS) / (pow(2.0, (float) ADC_RESOLUTION)) + VREF_MINUS;
 
-		 temp_MAPValue = 45.2042 * temp_ddpAnalogica;
+ temp_MAPValue = 45.2042 * temp_ddpAnalogica;
 
-		 xQueueSendToFront(xMAP, &temp_MAPValue, 0);
+ xQueueSendToFront(xMAP, &temp_MAPValue, 0);
 
-		 if ( DEBUG == "ON" && DEBUG_LEVEL <= 2) {
-		 Serial.print("Correu a task: ");
-		 Serial.println(pcTaskGetTaskName(NULL));
-		 }*/
-		vTaskDelay(200 / portTICK_PERIOD_MS);
-	}
-}
+ if ( DEBUG == "ON" && DEBUG_LEVEL <= 2) {
+ Serial.print("Correu a task: ");
+ Serial.println(pcTaskGetTaskName(NULL));
+ }
+ vTaskDelay(200 / portTICK_PERIOD_MS);
+ }
+ }*/
 
 //------------------------------------------------------------------------------
 void loop() {
-	vTaskDelete( NULL);
+	vTaskDelete(NULL);
 }
