@@ -90,7 +90,7 @@ void vIniciarDisplay(void *pvParameters) {
 		Serial.println("Ligar Display");
 
 	//  LogoEAU
-	int altura = 17, largura = 320;   // Definicao da dimensao da imagem
+	int altura = 34, largura = 320;   // Definicao da dimensao da imagem
 	int linha, coluna, inicio_x = 0; // Definicao de ints temporarios
 	// Ler a linha do bitmap
 	for (linha = 0; linha < altura; linha++) {
@@ -109,21 +109,21 @@ void vIniciarDisplay(void *pvParameters) {
 	for (linha = 0; linha < altura; linha++) {
 		// Ler coluna do bitmap
 		for (coluna = 0; coluna < largura; coluna++) {
-			tft.drawPixel(coluna + 150, linha + 150,
+			tft.drawPixel(coluna + 170, linha + 150,
 					pgm_read_word(logo_rpm + inicio_x)); // Desenhar o pixel no sitio correto
 			inicio_x++;
 		} // end pixel
 	}
 
 	// TPS
-	altura = 20;
-	largura = 31;   // Definicao da dimensao da imagem
+	altura = 40;
+	largura = 78;   // Definicao da dimensao da imagem
 	inicio_x = 0;  // Definicao de ints temporarios
 	// Ler a linha do bitmap
 	for (linha = 0; linha < altura; linha++) {
 		// Ler coluna do bitmap
 		for (coluna = 0; coluna < largura; coluna++) {
-			tft.drawPixel(coluna + 62, linha + 80,
+			tft.drawPixel(coluna + 60, linha + 150,
 					pgm_read_word(logo_tps + inicio_x)); // Desenhar o pixel no sitio correto
 			inicio_x++;
 		} // end pixel
@@ -215,12 +215,12 @@ void vIniciarDisplay(void *pvParameters) {
 		tft.print("C");
 		tft.setCursor(16, 110);
 		tft.print("%");
-		tft.setCursor(68, 110);
+		tft.setCursor(85, 200);
 		tft.print(tps);
 		tft.print("%");
 		sprintf(buffer, "%5d",rpm);
 		rpm++;
-		tft.setCursor(118, 110);
+		tft.setCursor(190, 200);
 		tft.print(buffer);
 
 		Serial.println("  Tarefa: Update valores");
