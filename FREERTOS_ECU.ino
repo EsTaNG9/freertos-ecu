@@ -3,12 +3,15 @@
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+//#include "libraries/spiffsVFS/spiffsVFS.h"
 #include "esp_system.h"
 #include "nvs_flash.h"
 #include "esp_task_wdt.h"
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
+
+#include "ign_table.h"
 
 #define TEMPO_MAXIMO_MOTOR_MORRER 1000
 #define ADC_RESOLUTION 6
@@ -45,6 +48,8 @@ void vBrain(void *pvParameters);
 //Declarar funcoes
 int getCrankAngle(int);
 void getLowRPM(void);
+void prntIGN(void);
+float interpolation(int, int);
 
 //Handles
 QueueHandle_t xRPM;
@@ -68,6 +73,10 @@ const uint8_t interruptPin = 4;
 const uint8_t MAPSensorPin = 36;
 const uint8_t bobine1Pin = 32;
 const uint8_t injetor1Pin = 33;
+
+/*uint8_t PRE[16] = { 0 };
+ uint8_t RPM[12] = { 0 };
+ uint8_t IGN[12][16] = { 0 };*/
 
 //Configurar roda fonica
 uint16_t numRealDentes = 35;
@@ -282,12 +291,18 @@ void coilDischargeTimer_callback(void *arg) {
 		//atualRPM = temp_atualRPM;
 	}
 
+	digitalWrite(bobine1Pin, HIGH);
 	//xQueuePeek(xRPM, &atualRPM, (TickType_t) 10);
 
 	Serial.print("Número total de dentes: ");
 	Serial.println(numRealDentes);
 	Serial.print("RPM: ");
 	Serial.println(temp_atualRPM);
+	Serial.print("advance: ");
+	Serial.println(interpolation(50, 2500));
+
+	//prntIGN();
+
 }
 
 // Interrupção gerada na transição do sinal do sensor de Hall
@@ -398,6 +413,85 @@ void vInitDisplay(void *pvParameters) {
 		}
 		vTaskDelay(500 / portTICK_PERIOD_MS);
 	}
+}
+
+float interpolation(int hpa, int revs) {
+
+	// vTaskDelay(3000/portTICK_PERIOD_MS);
+	// ESP_LOGI(SPFS, "Initializing Interpoltion\n");
+	// printf("Pressure: %d RPMS: %d\n",hpa,revs);
+	int i = 0, j = 0;
+
+	float x, y;
+	int xl, xh, yl, yh;
+
+	do {
+		i++;
+	} while (hpa >= PRE[i] && PRE[i] != 1050);
+	xl = PRE[i - 1];
+	xh = PRE[i];
+
+	do {
+		j++;
+	} while (revs >= RPM[j] && RPM[j] != 8000);
+	yl = RPM[j - 1];
+	yh = RPM[j];
+
+	// printf("\n%.2f   %.2f\n",IGN[j-1][i-1], IGN[j-1][i]);
+	// printf("%.2f   %.2f\n",IGN[j][i-1], IGN[j][i]);
+
+	x = (100 * (hpa - PRE[i - 1]) / (xh - xl)) * (100 * (IGN[j - 1][i] - IGN[j - 1][i - 1]));
+
+	y = (100 * (revs - RPM[j - 1]) / (yh - yl)) * (100 * (IGN[j][i - 1] - IGN[j - 1][i - 1]));
+
+	float dist = 0;
+	if (IGN[j][i] >= IGN[j - 1][i - 1]) {
+		dist = (sqrt(pow(x, 2) + pow(y, 2)) / 10000) + IGN[j - 1][i - 1];
+	} else {
+		dist = IGN[j - 1][i - 1] - (sqrt(pow(x, 2) + pow(y, 2)) / 10000);
+	};
+
+	/* VALOR FINAL DE AVANCO, MANDAR PARAS QUEUE, OU REQUISITAR FUNCAO DIRETAMENTE*/
+	//IGN_Value = dist;
+	// printf("\ndist= %.4f\n",dist);
+	// float VolEff = IGN[j-1][i-1]+ sqrt(  power( x-IGN[j-1][i-1] ) + power(y-IGN[j-1][i-1])   );
+	// IGN_Value=VolEff;
+	// printf("\n");
+	return dist;
+
+}
+
+void prntIGN(void) {
+
+	//Print VE Table
+	int i, j;
+
+	printf("Pressao:\n");
+	for (i = 0; i < 16; i++) {
+		printf("%d ", PRE[i]);
+	}
+	printf("\n");
+
+	printf("RPM:\n");
+	for (i = 0; i < 12; i++) {
+		printf("%d ", RPM[i]);
+	}
+	printf("\n");
+
+	printf("Avanco:\n");
+
+	j = 0;
+	while (j < 12) {
+		for (i = 0; i < 16; i++) {
+			printf("%d ", IGN[j][i]);
+
+		}
+		printf("\n");
+		j++;
+	}
+
+	printf("\n");
+	return;
 }
 
 /*void vGetMAP(void *pvParameters) {
