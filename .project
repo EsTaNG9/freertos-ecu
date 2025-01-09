@@ -86,5 +86,10 @@
 			<type>2</type>
 			<locationURI>ECLIPSE_HOME/arduinoPlugin/packages/esp32/hardware/esp32/3.0.4/libraries/Wire</locationURI>
 		</link>
+		<link>
+			<name>libraries/XPT2046_Touchscreen</name>
+			<type>2</type>
+			<locationURI>ECLIPSE_HOME/arduinoPlugin/libraries/XPT2046_Touchscreen/1.4.0</locationURI>
+		</link>
 	</linkedResources>
 </projectDescription>

@@ -9,6 +9,7 @@
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
+#include <XPT2046_Touchscreen.h>
 
 // Imagens em bitmap
 #include "engauto.h" //logo automovel
@@ -26,6 +27,12 @@
 #define TFT_MISO 19
 #define TFT_SCLK 18
 #define TFT_RST -1 // ligar ao 3V3
+#define T_CS     22  // Pino do touch
+// Pinos do controlador Touch
+#define T_CS 21
+#define T_IRQ 4
+
+
 
 //Constantes Global
 const uint8_t DEBUG = 1; // DEBUG
@@ -36,6 +43,7 @@ bool ESTADODISPLAY = false; // display on off
 
 Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK,
 TFT_RST, TFT_MISO);
+XPT2046_Touchscreen ts(T_CS, T_IRQ);
 
 /* Definicoes de prototipos das tarefas */
 void vIniciarDisplay(void *pvParameters);
@@ -283,5 +291,13 @@ void vLerTempMotor(void *pvparameters) {
 
 // loop
 void loop() {
-	vTaskDelete(NULL);  //matar a tarefa arduino
+	//vTaskDelete(NULL);  //matar a tarefa arduino
+	 // Verificar se há toque
+	if (ts.touched()) { // Verifica se o display foi tocado
+	    TS_Point p = ts.getPoint(); // Lê o ponto tocado
+	    Serial.print("X: ");
+	    Serial.print(p.x);
+	    Serial.print(" Y: ");
+	    Serial.println(p.y);
+	}
 }
