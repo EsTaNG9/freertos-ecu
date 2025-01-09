@@ -12,10 +12,10 @@
 
 // Imagens em bitmap
 #include "engauto.h" //logo automovel
+#include "logo_map.h" //logo map
 #include "logo_temp_motor.h" //logo temp_motor
-#include "logo_temp_pneu.h" //logo temp_pneu
-#include "logo_temp_exterior.h" //logo temp_exterior
-#include "logo_humidade.h" //logo logo_humidade
+#include "logo_avanco.h"
+#include "logo_temp_gases_adm.h" //logo logo_humidade
 #include "logo_tps.h" //logo logo_tps
 #include "logo_rpm.h" //logo logo_rpm
 
@@ -39,7 +39,7 @@ TFT_RST, TFT_MISO);
 
 /* Definicoes de prototipos das tarefas */
 void vIniciarDisplay(void *pvParameters);
-void vApagarValoresDisplay(void *pvParameters);
+//void vApagarValoresDisplay(void *pvParameters);
 //void vEscreverValoresDisplay( void * pvParameters);
 void vLerTempMotor(void *pvparameters);
 
@@ -66,17 +66,16 @@ void setup() {
 	vTaskPrioritySet(NULL, configMAX_PRIORITIES - 1);
 
 	// Criar tarefas
-	xTaskCreatePinnedToCore(vIniciarDisplay, "DISPLAY", 8192, NULL, 1, NULL, 0);
+	xTaskCreatePinnedToCore(vIniciarDisplay, "DISPLAY", 8192, NULL, 1, NULL, 1);
 	//xTaskCreatePinnedToCore(vApagarValoresDisplay,"Apagar os valores do dispplay", 8192, NULL, 2,	&xResetValoresDisplayHandle, 0);
-	xTaskCreatePinnedToCore(vLerTempMotor, "Temperatura Motor", 8192, NULL, 3,
-			NULL, 0);
+	xTaskCreatePinnedToCore(vLerTempMotor, "Temperatura Motor", 8192, NULL, 3, NULL, 1);
 
 	Serial.begin(115200);
 }
 
 // Task para desenhar o logotipo de EAU
 void vIniciarDisplay(void *pvParameters) {
-	float temp_motor = 0, temp_peneu = 0, tps = 0;
+	float temp_motor = 0, map = 0, tps = 0, avanco = 0;
 	uint16_t rpm = 65530;
 	char buffer[10];
 
@@ -109,7 +108,7 @@ void vIniciarDisplay(void *pvParameters) {
 	for (linha = 0; linha < altura; linha++) {
 		// Ler coluna do bitmap
 		for (coluna = 0; coluna < largura; coluna++) {
-			tft.drawPixel(coluna + 170, linha + 150,
+			tft.drawPixel(coluna + 230, linha + 180,
 					pgm_read_word(logo_rpm + inicio_x)); // Desenhar o pixel no sitio correto
 			inicio_x++;
 		} // end pixel
@@ -123,63 +122,63 @@ void vIniciarDisplay(void *pvParameters) {
 	for (linha = 0; linha < altura; linha++) {
 		// Ler coluna do bitmap
 		for (coluna = 0; coluna < largura; coluna++) {
-			tft.drawPixel(coluna + 60, linha + 150,
+			tft.drawPixel(coluna + 110, linha + 180,
 					pgm_read_word(logo_tps + inicio_x)); // Desenhar o pixel no sitio correto
 			inicio_x++;
 		} // end pixel
 	}
 
-	// Humidade
-	altura = 20;
-	largura = 15;   // Definicao da dimensao da imagem
+	// Temp Gases de Admissão
+	altura = 45;
+	largura = 78;   // Definicao da dimensao da imagem
 	inicio_x = 0;  // Definicao de ints temporarios
 	// Ler a linha do bitmap
 	for (linha = 0; linha < altura; linha++) {
 		// Ler coluna do bitmap
 		for (coluna = 0; coluna < largura; coluna++) {
-			tft.drawPixel(coluna + 19, linha + 80,
-					pgm_read_word(logo_humidade + inicio_x)); // Desenhar o pixel no sitio correto
+			tft.drawPixel(coluna + 20, linha + 80,
+					pgm_read_word(logo_temp_gases_adm + inicio_x)); // Desenhar o pixel no sitio correto
 			inicio_x++;
 		} // end pixel
 	}
 
-	// Temp. Exterior
-	altura = 20;
-	largura = 16;   // Definicao da dimensao da imagem
+	// Avanço
+	altura = 60;
+	largura = 60;   // Definicao da dimensao da imagem
 	inicio_x = 0;  // Definicao de ints temporarios
 	// Ler a linha do bitmap
 	for (linha = 0; linha < altura; linha++) {
 		// Ler coluna do bitmap
 		for (coluna = 0; coluna < largura; coluna++) {
-			tft.drawPixel(coluna + 120, linha + 25,
-					pgm_read_word(logo_temp_exterior + inicio_x)); // Desenhar o pixel no sitio correto
+			tft.drawPixel(coluna + 20, linha + 170,
+					pgm_read_word(logo_avanco + inicio_x)); // Desenhar o pixel no sitio correto
 			inicio_x++;
 		} // end pixel
 	}
 
-	// Temp. Pneu
-	altura = 20;
-	largura = 16;   // Definicao da dimensao da imagem
+	// MAP
+	altura = 78;
+	largura = 78;   // Definicao da dimensao da imagem
 	inicio_x = 0;  // Definicao de ints temporarios
 	// Ler a linha do bitmap
 	for (linha = 0; linha < altura; linha++) {
 		// Ler coluna do bitmap
 		for (coluna = 0; coluna < largura; coluna++) {
-			tft.drawPixel(coluna + 70, linha + 25,
-					pgm_read_word(logo_temp_pneu + inicio_x)); // Desenhar o pixel no sitio correto
+			tft.drawPixel(coluna + 230, linha + 60,
+					pgm_read_word(logo_map + inicio_x)); // Desenhar o pixel no sitio correto
 			inicio_x++;
 		} // end pixel
 	}
 
 	// Temp. Motor
-	altura = 20;    // Definicao da dimensao da imagem
-	largura = 23;   // Definicao da dimensao da imagem
+	altura = 78;    // Definicao da dimensao da imagem
+	largura = 78;   // Definicao da dimensao da imagem
 	inicio_x = 0;   // Definicao de ints temporarios
 	// Ler a linha do bitmap
 	for (linha = 0; linha < altura; linha++) {
 		// Ler coluna do bitmap
 		for (coluna = 0; coluna < largura; coluna++) {
-			tft.drawPixel(coluna + 15, linha + 25,
+			tft.drawPixel(coluna + 140, linha + 60,
 					pgm_read_word(logo_temp_motor + inicio_x)); // Desenhar o pixel no sitio correto
 			inicio_x++;
 		} // end pixel
@@ -190,37 +189,49 @@ void vIniciarDisplay(void *pvParameters) {
 
 	for (;;) {
 		xQueueReceive(tempmotorQueue, &temp_motor, 0);
+
+
+		  // Atualiza o valor de `tps`
+		        tps += 0.01; // Incrementa `tps` em passos de 0.01
+		        if (tps >= 100.0) tps = 0.0; // Reinicia para 0 quando atinge 100
+
 		//Serial.println(temp_motor);
 		//Serial.println(receber_dados_dht11.temp_exterior);
 		//Serial.println(receber_dados_dht11.humidade);
 
 		Serial.println("Dados escrever display: ");
-		Serial.println(temp_motor);
-		Serial.println(temp_peneu);
+	//	Serial.println(temp_motor);
+	//	Serial.println(temp_peneu);
 		Serial.println("8");
 		Serial.println(tps);
 		Serial.println(rpm);
 
-		tft.setCursor(10, 50);
+		tft.setCursor(160, 150);
 		tft.setTextSize(1);
 		tft.print(temp_motor);
 		tft.print((char) 167);
 		tft.print("C");
+
 		tft.setCursor(60, 50);
-		tft.print(temp_peneu);
+		tft.print(map);
 		tft.print((char) 167);
 		tft.print("C");
+
 		tft.setCursor(110, 50);
 		tft.print((char) 167);
 		tft.print("C");
+
 		tft.setCursor(16, 110);
 		tft.print("%");
-		tft.setCursor(85, 200);
+
+		dtostrf(tps, 5, 2, buffer);
+		tft.setCursor(130, 230);
 		tft.print(tps);
 		tft.print("%");
+
 		sprintf(buffer, "%5d",rpm);
 		rpm++;
-		tft.setCursor(190, 200);
+		tft.setCursor(250, 230);
 		tft.print(buffer);
 
 		Serial.println("  Tarefa: Update valores");
@@ -229,7 +240,7 @@ void vIniciarDisplay(void *pvParameters) {
 }
 
 // task para apagar valores no display
-void vApagarValoresDisplay(void *pvParameters) {
+/*void vApagarValoresDisplay(void *pvParameters) {
 	TickType_t xLastWakeTime = xTaskGetTickCount();
 
 	for (;;) {
@@ -243,7 +254,7 @@ void vApagarValoresDisplay(void *pvParameters) {
 		Serial.println("  Tarefa: vApagarValoresDisplay");
 		vTaskDelayUntil(&xLastWakeTime, (2000 / portTICK_PERIOD_MS));
 	}
-}
+}/*/
 
 void vLerTempMotor(void *pvparameters) {
 	TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -266,7 +277,7 @@ void vLerTempMotor(void *pvparameters) {
 		}
 
 		Serial.println("  Tarefa: vLerTempMotor");
-		vTaskDelayUntil(&xLastWakeTime, (500 / portTICK_PERIOD_MS));
+		vTaskDelayUntil(&xLastWakeTime, (1000 / portTICK_PERIOD_MS));
 	}
 }
 
