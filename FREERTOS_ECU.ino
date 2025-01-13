@@ -7,6 +7,8 @@
 #include "esp_system.h"
 #include "nvs_flash.h"
 #include "esp_task_wdt.h"
+#include "driver/ledc.h"
+#include "esp_err.h"
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
@@ -29,6 +31,13 @@
 #define TFT_SCLK 18
 #define TFT_RST -1 // ligar ao 3V3
 
+#define INJ1_FREQ 1000 //Se o injector deadtime for 1ms@12V
+#define INJ1_TIMER LEDC_TIMER_3//Selecionar o timer a ser usado
+#define INJ1_RESO LEDC_TIMER_13_BIT//Resolução do timer utilizado
+#define INJ1_MODE LEDC_LOW_SPEED_MODE
+#define INJ1_CHANNEL LEDC_CHANNEL_0
+#define INJ1_MAX_DUTY ((1 << 13) - 1)// Max duty (8191 for 13 bits)
+
 // Criar um objeto tft com indicação dos terminais CS e DC
 Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK,
 TFT_RST, TFT_MISO);
@@ -49,7 +58,8 @@ void vBrain(void *pvParameters);
 int getCrankAngle(int);
 void getLowRPM(void);
 void prntIGN(void);
-float interpolation(int, int);
+float interpolation(int, int, int);
+//void setup_timers(void);
 
 //Handles
 QueueHandle_t xRPM;
@@ -108,8 +118,17 @@ void setup(void) {
 	//Interrupção Hall Sensor
 	pinMode(interruptPin, INPUT);
 	pinMode(bobine1Pin, OUTPUT);
+	pinMode(injetor1Pin, OUTPUT);
 	pinMode(MAPSensorPin, INPUT);
 	attachInterrupt(digitalPinToInterrupt(interruptPin), onPulse, RISING);
+
+	//Tive q definir primeiro o pwm, pq dps da erro, presumidamente, o esp tentava acessar dois timers iguais
+	ledc_timer_config_t inj1_timer = { .speed_mode = INJ1_MODE, .duty_resolution = INJ1_RESO, .timer_num = INJ1_TIMER, .freq_hz = INJ1_FREQ, .clk_cfg = LEDC_AUTO_CLK };
+	ESP_ERROR_CHECK(ledc_timer_config(&inj1_timer));
+
+	// Configure the LEDC channel
+	ledc_channel_config_t inj1_channel = { .gpio_num = injetor1Pin, .speed_mode = INJ1_MODE, .channel = INJ1_CHANNEL, .intr_type = LEDC_INTR_DISABLE, .timer_sel = INJ1_TIMER, .duty = 0, .hpoint = 0 };
+	ESP_ERROR_CHECK(ledc_channel_config(&inj1_channel));
 
 	//timers
 	//coilTimer = timerBegin(1000000);
@@ -141,6 +160,27 @@ void setup(void) {
 
 }
 
+/*void setup_timers(void) {
+
+ //timers
+ //coilTimer = timerBegin(1000000);
+ //timerAttachInterrupt(coilTimer, &coilDischargeTimer);
+ esp_timer_create_args_t coilTimer_args; //= { .callback = &coilDischargeTimer_callback, .arg = NULL, .name = "coilTimer" };
+ coilTimer_args.arg = NULL, coilTimer_args.callback = &coilDischargeTimer_callback, coilTimer_args.name = "coilTimer";
+ ESP_ERROR_CHECK(esp_timer_create(&coilTimer_args, &coilTimer));
+ ESP_ERROR_CHECK(esp_timer_start_periodic(coilTimer, 1000000)); // 5 seconds (5,000,000 µs)
+ // Configure the LEDC timer
+
+ ledc_timer_config_t inj1_timer = { .speed_mode = INJ1_MODE, .duty_resolution = INJ1_RESO, .timer_num = INJ1_TIMER, .freq_hz = INJ1_FREQ, .clk_cfg = LEDC_AUTO_CLK };
+ ESP_ERROR_CHECK(ledc_timer_config(&inj1_timer));
+
+ // Configure the LEDC channel
+ ledc_channel_config_t inj1_channel = { .gpio_num = injetor1Pin, .speed_mode = INJ1_MODE, .channel = INJ1_CHANNEL, .intr_type = LEDC_INTR_DISABLE, .timer_sel = INJ1_TIMER, .duty = 0, .hpoint = 0 };
+ ESP_ERROR_CHECK(ledc_channel_config(&inj1_channel));
+
+ printf("Timers setup complete\n");
+ }*/
+
 void vBrain(void *pvParameters) {
 	portBASE_TYPE xStatus;
 	unsigned long temp_tempoUltimoDente = 0, tempoUltimoDente = 1;
@@ -156,7 +196,7 @@ void vBrain(void *pvParameters) {
 		//xQueuePeek(xtempoUltimoDente, &temp_tempoUltimoDente, 0);
 		//Serial.println(temp_tempoUltimoDente);
 		//unsigned long tempoParaUltimoDente = (loopAtual_Brain - temp_tempoUltimoDente);
-		if (xQueuePeek(xtempoUltimoDente, &tempoUltimoDente, (TickType_t) 250) == pdPASS) {
+		if (xQueuePeek(xtempoUltimoDente, &tempoUltimoDente, (TickType_t) 25) == pdPASS) {
 			//tempoUltimoDente = temp_tempoUltimoDente;
 		}
 		unsigned long tempoParaUltimoDente = (loopAtual_Brain - tempoUltimoDente);
@@ -166,7 +206,7 @@ void vBrain(void *pvParameters) {
 		if ((tempoParaUltimoDente < TEMPO_MAXIMO_MOTOR_MORRER) || (tempoParaUltimoDente > loopAtual_Brain)) {
 			int ultimaRPM = atualRPM;
 			getLowRPM();
-			if (xQueuePeek(xRPM, &temp_atualRPM, (TickType_t) 250) == pdPASS) { // Para calcular RPS
+			if (xQueuePeek(xRPM, &temp_atualRPM, (TickType_t) 25) == pdPASS) { // Para calcular RPS
 				atualRPM = temp_atualRPM;
 			}
 			//xQueuePeek(xRPM, &atualRPM, (TickType_t) 10);
@@ -252,11 +292,11 @@ void getLowRPM(void) {
 	xQueuePeek(xtempoPenultimoDente, &temp_tempoPenultimoDente, (TickType_t) 25);
 	uint64_t tempoEntreDentes = (temp_tempoUltimoDente - temp_tempoPenultimoDente);
 	if (tempoEntreDentes == 0) {
-		Serial.println("tempoEntreDentes: 0");
-		Serial.print("temp_tempoUltimoDente: ");
-		Serial.println(temp_tempoUltimoDente);
-		Serial.print("temp_tempoPenultimoDente: ");
-		Serial.println(temp_tempoPenultimoDente);
+		/*Serial.println("tempoEntreDentes: 0");
+		 Serial.print("temp_tempoUltimoDente: ");
+		 Serial.println(temp_tempoUltimoDente);
+		 Serial.print("temp_tempoPenultimoDente: ");
+		 Serial.println(temp_tempoPenultimoDente);*/
 	} else {
 		uint64_t rpm_temporary = (((60000000 / (tempoEntreDentes * 36)) + 1) * 2); //+1 pq falha, n sei pk x2??
 		if (xQueueOverwrite(xRPM, &rpm_temporary) == pdPASS) {
@@ -286,6 +326,7 @@ void getLowRPM(void) {
 //}
 void coilDischargeTimer_callback(void *arg) {
 	uint64_t temp_atualRPM = 0;
+	float duty = 0;
 
 	if (xQueuePeek(xRPM, &temp_atualRPM, (TickType_t) 250) == pdPASS) {
 		//atualRPM = temp_atualRPM;
@@ -293,13 +334,17 @@ void coilDischargeTimer_callback(void *arg) {
 
 	digitalWrite(bobine1Pin, HIGH);
 	//xQueuePeek(xRPM, &atualRPM, (TickType_t) 10);
+	duty = (interpolation(50, 2500, 1) / 0.012); // y = 0,012x (X0; Y0),(X8191;Y100)
+	ESP_ERROR_CHECK(ledc_set_duty(INJ1_MODE, INJ1_CHANNEL, (int)duty));
+	ESP_ERROR_CHECK(ledc_update_duty(INJ1_MODE, INJ1_CHANNEL));
+	printf("Duty Cycle VE: %d\n", (int) duty);
 
 	Serial.print("Número total de dentes: ");
 	Serial.println(numRealDentes);
 	Serial.print("RPM: ");
 	Serial.println(temp_atualRPM);
 	Serial.print("advance: ");
-	Serial.println(interpolation(50, 2500));
+	Serial.println(interpolation(50, 2500, 0));
 
 	//prntIGN();
 
@@ -415,7 +460,10 @@ void vInitDisplay(void *pvParameters) {
 	}
 }
 
-float interpolation(int hpa, int revs) {
+float interpolation(int hpa, int revs, int type) {
+
+	// SE TYPE == 1, VE
+	// SE TYPE == 0, IGN
 
 	// vTaskDelay(3000/portTICK_PERIOD_MS);
 	// ESP_LOGI(SPFS, "Initializing Interpoltion\n");
@@ -425,40 +473,79 @@ float interpolation(int hpa, int revs) {
 	float x, y;
 	int xl, xh, yl, yh;
 
-	do {
-		i++;
-	} while (hpa >= PRE[i] && PRE[i] != 1050);
-	xl = PRE[i - 1];
-	xh = PRE[i];
+	if (type == 0) {
+		do {
+			i++;
+		} while (hpa >= PRE[i] && PRE[i] != 1050);
+		xl = PRE[i - 1];
+		xh = PRE[i];
 
-	do {
-		j++;
-	} while (revs >= RPM[j] && RPM[j] != 8000);
-	yl = RPM[j - 1];
-	yh = RPM[j];
+		do {
+			j++;
+		} while (revs >= RPM[j] && RPM[j] != 8000);
+		yl = RPM[j - 1];
+		yh = RPM[j];
 
-	// printf("\n%.2f   %.2f\n",IGN[j-1][i-1], IGN[j-1][i]);
-	// printf("%.2f   %.2f\n",IGN[j][i-1], IGN[j][i]);
+		// printf("\n%.2f   %.2f\n",IGN[j-1][i-1], IGN[j-1][i]);
+		// printf("%.2f   %.2f\n",IGN[j][i-1], IGN[j][i]);
 
-	x = (100 * (hpa - PRE[i - 1]) / (xh - xl)) * (100 * (IGN[j - 1][i] - IGN[j - 1][i - 1]));
+		x = (100 * (hpa - PRE[i - 1]) / (xh - xl)) * (100 * (IGN[j - 1][i] - IGN[j - 1][i - 1]));
 
-	y = (100 * (revs - RPM[j - 1]) / (yh - yl)) * (100 * (IGN[j][i - 1] - IGN[j - 1][i - 1]));
+		y = (100 * (revs - RPM[j - 1]) / (yh - yl)) * (100 * (IGN[j][i - 1] - IGN[j - 1][i - 1]));
 
-	float dist = 0;
-	if (IGN[j][i] >= IGN[j - 1][i - 1]) {
-		dist = (sqrt(pow(x, 2) + pow(y, 2)) / 10000) + IGN[j - 1][i - 1];
-	} else {
-		dist = IGN[j - 1][i - 1] - (sqrt(pow(x, 2) + pow(y, 2)) / 10000);
-	};
+		float dist = 0;
+		if (IGN[j][i] >= IGN[j - 1][i - 1]) {
+			dist = (sqrt(pow(x, 2) + pow(y, 2)) / 10000) + IGN[j - 1][i - 1];
+		} else {
+			dist = IGN[j - 1][i - 1] - (sqrt(pow(x, 2) + pow(y, 2)) / 10000);
+		};
 
-	/* VALOR FINAL DE AVANCO, MANDAR PARAS QUEUE, OU REQUISITAR FUNCAO DIRETAMENTE*/
-	//IGN_Value = dist;
-	// printf("\ndist= %.4f\n",dist);
-	// float VolEff = IGN[j-1][i-1]+ sqrt(  power( x-IGN[j-1][i-1] ) + power(y-IGN[j-1][i-1])   );
-	// IGN_Value=VolEff;
-	// printf("\n");
-	return dist;
+		/* VALOR FINAL DE AVANCO, MANDAR PARAS QUEUE, OU REQUISITAR FUNCAO DIRETAMENTE*/
+		//IGN_Value = dist;
+		// printf("\ndist= %.4f\n",dist);
+		// float VolEff = IGN[j-1][i-1]+ sqrt(  power( x-IGN[j-1][i-1] ) + power(y-IGN[j-1][i-1])   );
+		// IGN_Value=VolEff;
+		// printf("\n");
+		//printf("this ran\n");
+		return dist;
+	}
+	if (type == 1) {
+		do {
+			i++;
+		} while (hpa >= PRE[i] && PRE[i] != 1050);
+		xl = PRE[i - 1];
+		xh = PRE[i];
 
+		do {
+			j++;
+		} while (revs >= RPM[j] && RPM[j] != 8000);
+		yl = RPM[j - 1];
+		yh = RPM[j];
+
+		// printf("\n%.2f   %.2f\n",IGN[j-1][i-1], IGN[j-1][i]);
+		// printf("%.2f   %.2f\n",IGN[j][i-1], IGN[j][i]);
+
+		x = (100 * (hpa - PRE[i - 1]) / (xh - xl)) * (100 * (VE[j - 1][i] - VE[j - 1][i - 1]));
+
+		y = (100 * (revs - RPM[j - 1]) / (yh - yl)) * (100 * (VE[j][i - 1] - VE[j - 1][i - 1]));
+
+		float dist = 0;
+		if (VE[j][i] >= VE[j - 1][i - 1]) {
+			dist = (sqrt(pow(x, 2) + pow(y, 2)) / 10000) + VE[j - 1][i - 1];
+		} else {
+			dist = VE[j - 1][i - 1] - (sqrt(pow(x, 2) + pow(y, 2)) / 10000);
+		};
+
+		/* VALOR FINAL DE AVANCO, MANDAR PARAS QUEUE, OU REQUISITAR FUNCAO DIRETAMENTE*/
+		//IGN_Value = dist;
+		// printf("\ndist= %.4f\n",dist);
+		// float VolEff = IGN[j-1][i-1]+ sqrt(  power( x-IGN[j-1][i-1] ) + power(y-IGN[j-1][i-1])   );
+		// IGN_Value=VolEff;
+		// printf("\n");
+		//printf("this ran\n");
+		return dist;
+	}
+	return 0; // só para o compiler nao guinchar
 }
 
 void prntIGN(void) {
