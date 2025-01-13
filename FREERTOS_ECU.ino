@@ -13,7 +13,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
 
-#include "ign_table.h"
+#include "tables.h"
 
 #define TEMPO_MAXIMO_MOTOR_MORRER 1000
 #define ADC_RESOLUTION 6
