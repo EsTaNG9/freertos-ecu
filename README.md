@@ -72,13 +72,19 @@ This is an example of how to list things you need to use the software and how to
 <!-- ROADMAP -->
 ## Roadmap
 
-- [x] Add Changelog
-- [x] Add back to top links
-- [ ] Add Additional Templates w/ Examples
-- [ ] Add "components" document to easily copy & paste sections of the readme
-- [ ] Multi-language Support
-    - [ ] Chinese
-    - [ ] Spanish
+- [x] Hall sensro triggering an interrupt
+- [x] Trigger pattern 36-1 on the interrupt
+- [ ] DISPLAY
+    - [ ] Touch
+    - [ ] VE table
+    - [ ] IGN table
+    - [ ] Main page
+- [x] Read + interpolate value from tables
+- [ ] ADC
+    - [ ] MAP
+    - [ ] IAT
+    - [ ] CLT
+    - [ ] TPS
 
 See the [open issues](https://github.com/EsTaNG9/freertos-ecu/issues) for a full list of proposed features (and known issues).
 
