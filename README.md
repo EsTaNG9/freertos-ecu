@@ -36,7 +36,7 @@ The hear of this project was to develop a way to trigger the sparkplug at the co
 
 Limitações:
 * The ESP32 only has 4 timers
-* An PIC or ARM based microcontroller would be a better application, just because normally they have more timers avaible
+* An PIC or ARM based microcontroller would be a better application, just because normally they have more timers available
 * Falta de tempo para melhor desenvolver o projeto :smile:
 
 Despite our efforts, the deadline came in quicly and unfortunately we didnt have time to finnish this project the our fullest capability.
