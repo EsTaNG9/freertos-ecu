@@ -23,13 +23,10 @@
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/core/variant}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/SPI/src}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/Wire/src}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/Adafruit_ILI9341}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/Adafruit_GFX_Library}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/Adafruit_BusIO}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/SimplyAtomic}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/TFT_eSPI}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/FS/src}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/SPIFFS/src}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/Adafruit_ILI9341}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/Adafruit_GFX_Library}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/XPT2046_Touchscreen}&quot;"/>
 								</option>
 								<inputType id="io.sloeber.compiler.cpp.sketch.input.345339855" name="CPP source files" superClass="io.sloeber.compiler.cpp.sketch.input"/>
@@ -40,13 +37,10 @@
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/core/variant}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/SPI/src}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/Wire/src}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/Adafruit_ILI9341}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/Adafruit_GFX_Library}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/Adafruit_BusIO}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/SimplyAtomic}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/TFT_eSPI}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/FS/src}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/SPIFFS/src}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/Adafruit_ILI9341}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/Adafruit_GFX_Library}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/XPT2046_Touchscreen}&quot;"/>
 								</option>
 								<inputType id="io.sloeber.compiler.c.sketch.input.190381217" name="C Source Files" superClass="io.sloeber.compiler.c.sketch.input"/>
@@ -57,13 +51,10 @@
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/core/variant}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/SPI/src}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/Wire/src}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/Adafruit_ILI9341}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/Adafruit_GFX_Library}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/Adafruit_BusIO}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/SimplyAtomic}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/TFT_eSPI}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/FS/src}&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/SPIFFS/src}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/Adafruit_ILI9341}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/Adafruit_GFX_Library}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/FREERTOS_ECU/libraries/XPT2046_Touchscreen}&quot;"/>
 								</option>
 								<inputType id="io.sloeber.compiler.S.sketch.input.2101468963" name="Assembly source files" superClass="io.sloeber.compiler.S.sketch.input"/>
@@ -105,7 +96,7 @@
 						</toolChain>
 					</folderInfo>
 					<sourceEntries>
-						<entry excluding="libraries/XPT2046_Touchscreen/docs|libraries/XPT2046_Touchscreen/doc|libraries/TFT_eSPI/User_Setups|libraries/TFT_eSPI/Tools|libraries/TFT_eSPI/TFT_Drivers|libraries/TFT_eSPI/Processors|libraries/TFT_eSPI/Fonts|libraries/TFT_eSPI/Extensions|libraries/TFT_eSPI/docs|libraries/Adafruit_GFX_Library/Fonts|libraries/Adafruit_GFX_Library/fontconvert|libraries/?*/**/?xamples/**|libraries/?*/**/?xtras/**|libraries/?*/**/test*/**|libraries/?*/**/third-party/**|libraries/**/._*|libraries/?*/utility/*/*" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
+						<entry excluding="libraries/XPT2046_Touchscreen/docs|libraries/XPT2046_Touchscreen/doc|libraries/Adafruit_FRAM_SPI/assets|libraries/Adafruit_FRAM_I2C/assets|libraries/Adafruit_GFX_Library/Fonts|libraries/Adafruit_GFX_Library/fontconvert|libraries/?*/**/?xamples/**|libraries/?*/**/?xtras/**|libraries/?*/**/test*/**|libraries/?*/**/third-party/**|libraries/**/._*|libraries/?*/utility/*/*" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
 					</sourceEntries>
 				</configuration>
 			</storageModule>
