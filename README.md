@@ -17,7 +17,7 @@
   <h3 align="center">FREERTOS ECU</h3>
 
   <p align="center">
-    This is a poor attempt at making a basic enegine managment system based on the esp32 microprocessor.
+    This is a poor attempt at developing a basic enegine managment system based on the ESP32 microprocessor.
     <br />
     <br />
     <a href="https://github.com/EsTaNG9/freertos-ecu">View Demo (TO DO)</a>
