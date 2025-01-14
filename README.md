@@ -7,6 +7,12 @@
   <a href="https:///github.com/EsTaNG9/freertos-ecu">
     <img src="pics/auto_jpg.jpg" alt="Logo" width="1222" height="134">
   </a>
+   <h3></h3>
+  <div align="center">
+  <a href="https://github.com/https://github.com/EsTaNG9/freertos-ecu">
+    <img src="pics/MOTEC_DA_SHEIN.png" alt="Logo" width="250" height="250">
+  </a>
+</div>
 
   <h3 align="center">FREERTOS ECU</h3>
 
@@ -24,11 +30,6 @@
 
 <!-- ABOUT THE PROJECT -->
 ## About The Project
-<div align="center">
-  <a href="https://github.com/https://github.com/EsTaNG9/freertos-ecu">
-    <img src="pics/MOTEC_DA_SHEIN.png" alt="Logo" width="250" height="250">
-  </a>
-</div>
 
 Our project consist on developing a simple engine management system for a 1 cylinder 4 or 2 stroke internal combustion engine.
 The hear of this project was to develop a way to trigger the sparkplug at the correct time for each rotation of the engine. 
