@@ -30,17 +30,15 @@
   </a>
 </div>
 
-yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap 
-yap yap yap yap yap yap yap yap yap 
-yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap 
+Our project consist on developing a simple engine management system for a 1 cylinder 4 or 2 stroke internal combustion engine.
+The hear of this project was to develop a way to trigger the sparkplug at the correct time for each rotation of the engine. 
 
 Limitações:
-* The esp32 only has 4 timers
-* An PIC or ARM based microcontroller would be a better application
+* The ESP32 only has 4 timers
+* An PIC or ARM based microcontroller would be a better application, just because normally they have more timers avaible
 * Falta de tempo para melhor desenvolver o projeto :smile:
 
-yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap 
-yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap yap some more down here
+Despite our efforts, the deadline came in quicly and unfortunately we didnt have time to finnish this project the our fullest capability.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -96,7 +94,7 @@ See the [open issues](https://github.com/EsTaNG9/freertos-ecu/issues) for a full
 
 João Serrada - [@estang9](https://instagram.com/estang9) - 2192349@my.ipleiria.pt
 
-Alexandre Bernardo - [@xxxxxx](https://instagram.com/xxxx) - xxxxxxx@my.ipleiria.pt
+Alexandre Bernardo - 2213099@my.ipleiria.pt
 
 Project Link: [https://github.com/EsTaNG9/freertos-ecu](https://github.com/EsTaNG9/freertos-ecu)
 
