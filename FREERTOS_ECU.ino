@@ -20,6 +20,18 @@
 #define VREF_PLUS  5
 #define VREF_MINUS  0.0
 
+#define MAP_5V  10 //kpa
+#define MAP_0V 100 //kpa
+
+#define TPS_5V  100 //%
+#define TPS_0V 0 //%
+
+#define CLT_5V  120 //ºC
+#define CLT_0V -10 //ºC
+
+#define IAT_5V  120 //ºC
+#define IAT_0V -10 //ºC
+
 #define DEBUG "OFF"
 #define DEBUG_LEVEL 2
 
@@ -49,16 +61,15 @@ void coilDischargeTimer_callback(void *arg);
 //void IRAM_ATTR coilDischargeTimer(void);
 
 /* The tasks to be created. */
-//void calculateRPM(void *pvParameters);
 void vInitDisplay(void *pvParameters);
 void vBrain(void *pvParameters);
-//void vGetMAP(void *pvParameters);
 
 //Declarar funcoes
-int getCrankAngle(int);
+int getCrankAngle(int, int);
 void getLowRPM(void);
 void prntIGN(void);
 float interpolation(int, int, int);
+float getADC(int);
 //void setup_timers(void);
 
 //Handles
@@ -75,18 +86,13 @@ QueueHandle_t xtempoPrimeiroDenteMenosUm;
 esp_timer_handle_t coilTimer; //Definir a handle globalmente para a poder chamar na interrupcao
 
 // Estruturas
-//struct table3D fuelTable; //16x16 fuel map
-//struct table3D ignitionTable; //16x16 ignition map
+
 // pin to generate interrupts
 const uint8_t interruptPin = 4;
 //const uint8_t bombaCombustivelPin = 28;
 const uint8_t MAPSensorPin = 36;
 const uint8_t bobine1Pin = 32;
 const uint8_t injetor1Pin = 33;
-
-/*uint8_t PRE[16] = { 0 };
- uint8_t RPM[12] = { 0 };
- uint8_t IGN[12][16] = { 0 };*/
 
 //Configurar roda fonica
 uint16_t numRealDentes = 35;
@@ -187,6 +193,7 @@ void vBrain(void *pvParameters) {
 	uint64_t temp_atualRPM = 0, atualRPM = 0;
 	volatile unsigned long loopAtual_Brain = 1; // Para n dar erro no startup
 	unsigned long tempoUltimoloop_Brain = 0; // n pode ser volatile pq quero mandar valores para a queeue
+	float temp_ADCvalue = 0;
 
 	while (true) {
 		//loopAtual_Brain = tempoAtual_Brain - tempoUltimoloop_Brain;
@@ -222,7 +229,7 @@ void vBrain(void *pvParameters) {
 			//bombaCombustivel = false;
 			sincronizacao = false;
 			atualRPS = 0;
-			//Serial.println("Brain: ENGINE DEAD");
+			//Serial.println("Brain: ENGINE DEAD :(");
 		}
 
 		if (sincronizacao && (atualRPM > 0)) {
@@ -230,6 +237,13 @@ void vBrain(void *pvParameters) {
 			// Podemos configurar a ignição
 
 		}
+
+		//Updatar o valor MAP
+		temp_ADCvalue = getADC(MAPSensorPin);
+		int temp_MAP = (int) (temp_ADCvalue * (VREF_MINUS - VREF_PLUS) / (MAP_0V - MAP_5V));
+		xQueueSendToFront(xMAP, &temp_MAP, portMAX_DELAY);
+		//xQueueSendToFront(xMAP, &temp_MAP, (TickType_t ) 100);
+		Serial.println(temp_MAP);
 
 		//Serial.println(atualRPM);
 
@@ -255,18 +269,19 @@ void vBrain(void *pvParameters) {
 }
 
 /* Nota: n estou a conseguir implementar as queeue peeks sem crashar cpu*/
-int getCrankAngle(int tempoPorGrau) {
+int getCrankAngle(int tempoPorGrau, int contadorDentes) {
 	unsigned long temp_tempoUltimoDente;
 	unsigned long tempoUltimoDente = 1; // n pode ser volatile pq quero mandar valores para a queeue
-	int temp_contadorDentes;
+	//int temp_contadorDentes;
 
 // Prioridade máxima
-	xQueuePeek(xContadorDentes, &temp_contadorDentes, (TickType_t) 10); //portMAX_DELAY
+
+	//xQueuePeek(xContadorDentes, &temp_contadorDentes, (TickType_t) 10); //portMAX_DELAY
 	//xQueuePeek(xtempoUltimoDente, &temp_tempoUltimoDente, (TickType_t) 10);
 	//Prioridade normal
 
 	//int anguloCambota = ((temp_contadorDentes - 1) * anguloPorDente) + desvioPrimeiroDenteTDC;
-	int anguloCambota = ((temp_contadorDentes - 1) * anguloPorDente) + desvioPrimeiroDenteTDC;
+	int anguloCambota = ((contadorDentes - 1) * anguloPorDente) + desvioPrimeiroDenteTDC;
 
 	//Estimar o num de graus desde o ultimo dente
 	//long tempoDecorridoDesdeUltimoDente = micros() - temp_tempoUltimoDente;
@@ -421,7 +436,7 @@ void IRAM_ATTR onPulse(void) {
 			/*//Buscar o valor da ignição
 			 float valorignicao = 7;
 			 float tempoPorGrau = (tempoUltimoDente / anguloPorDente);
-			 float anguloDisparo = (desvioPrimeiroDenteTDC - valorignicao) - getCrankAngle(tempoPorGrau);
+			 float anguloDisparo = (desvioPrimeiroDenteTDC - valorignicao) - getCrankAngle(tempoPorGrau, contadorDentes);
 			 //timerAlarm(coilTimer, (anguloDisparo * tempoPorGrau), false, 0);
 			 esp_timer_start_once(coilTimer, long(anguloDisparo * tempoPorGrau));
 			 Serial.println("TIMER HAS BEEN TRIGGERED!!!!!");*/
@@ -500,13 +515,7 @@ float interpolation(int hpa, int revs, int type) {
 			dist = IGN[j - 1][i - 1] - (sqrt(pow(x, 2) + pow(y, 2)) / 10000);
 		};
 
-		/* VALOR FINAL DE AVANCO, MANDAR PARAS QUEUE, OU REQUISITAR FUNCAO DIRETAMENTE*/
-		//IGN_Value = dist;
-		// printf("\ndist= %.4f\n",dist);
-		// float VolEff = IGN[j-1][i-1]+ sqrt(  power( x-IGN[j-1][i-1] ) + power(y-IGN[j-1][i-1])   );
-		// IGN_Value=VolEff;
-		// printf("\n");
-		//printf("this ran\n");
+		/* VALOR FINAL DE AVANCO, MANDAR PARA QUEUE, OU REQUISITAR FUNCAO DIRETAMENTE*/
 		return dist;
 	}
 	if (type == 1) {
@@ -537,15 +546,15 @@ float interpolation(int hpa, int revs, int type) {
 		};
 
 		/* VALOR FINAL DE AVANCO, MANDAR PARAS QUEUE, OU REQUISITAR FUNCAO DIRETAMENTE*/
-		//IGN_Value = dist;
+		//VE_Value = dist;
 		// printf("\ndist= %.4f\n",dist);
-		// float VolEff = IGN[j-1][i-1]+ sqrt(  power( x-IGN[j-1][i-1] ) + power(y-IGN[j-1][i-1])   );
-		// IGN_Value=VolEff;
+		// float VolEff = VE[j-1][i-1]+ sqrt(  power( x-VE[j-1][i-1] ) + power(y-VE[j-1][i-1])   );
+		// VE_Value=VolEff;
 		// printf("\n");
 		//printf("this ran\n");
 		return dist;
 	}
-	return 0; // só para o compiler nao guinchar
+	return 0; // só para o compiler não guinchar
 }
 
 void prntIGN(void) {
@@ -581,26 +590,24 @@ void prntIGN(void) {
 	return;
 }
 
-/*void vGetMAP(void *pvParameters) {
- while (true) {
- /*uint8_t temp_valorAnalogico;
- uint8_t temp_ddpAnalogica;
- uint8_t temp_MAPValue;
+float getADC(int Pino) {
+	uint8_t temp_valorAnalogico;
+	float temp_ddpAnalogica;
+	//float temp_ADCValue;
 
- temp_valorAnalogico = analogRead(MAPSensorPin);
- temp_ddpAnalogica = temp_valorAnalogico * (VREF_PLUS - VREF_MINUS) / (pow(2.0, (float) ADC_RESOLUTION)) + VREF_MINUS;
+	temp_valorAnalogico = analogRead(Pino);
+	temp_ddpAnalogica = temp_valorAnalogico * (VREF_PLUS - VREF_MINUS) / (pow(2.0, (float) ADC_RESOLUTION)) + VREF_MINUS;
 
- temp_MAPValue = 45.2042 * temp_ddpAnalogica;
+	// temp_ADCValue = 45.2042 * temp_ddpAnalogica;
 
- xQueueSendToFront(xMAP, &temp_MAPValue, 0);
+	//xQueueSendToFront(xMAP, &temp_MAPValue, 0);
 
- if ( DEBUG == "ON" && DEBUG_LEVEL <= 2) {
- Serial.print("Correu a task: ");
- Serial.println(pcTaskGetTaskName(NULL));
- }
- vTaskDelay(200 / portTICK_PERIOD_MS);
- }
- }*/
+	if ( DEBUG == "ON" && DEBUG_LEVEL <= 2) {
+		Serial.println("Correu a função getADC() ");
+	}
+
+	return temp_ddpAnalogica;
+}
 
 //------------------------------------------------------------------------------
 void loop() {
