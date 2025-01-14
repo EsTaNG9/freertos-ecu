@@ -71,7 +71,7 @@ This is an example of how to list things you need to use the software and how to
 <!-- ROADMAP -->
 ## Roadmap
 
-- [x] Hall sensro triggering an interrupt
+- [x] Hall sensor triggering an interrupt
 - [x] Trigger pattern 36-1 on the interrupt
 - [ ] DISPLAY
     - [ ] Touch
