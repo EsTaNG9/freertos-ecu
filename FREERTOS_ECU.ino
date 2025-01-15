@@ -20,6 +20,8 @@
 #include "logo_tps.h" //logo logo_tps
 #include "logo_rpm.h" //logo logo_rpm
 
+#include "tables.h"
+
 // Definir os terminais do LCD
 #define TFT_CS   05
 #define TFT_DC   26
@@ -239,6 +241,7 @@ void vIniciarDisplay(void *pvParameters) {
 
 			//Updates de valores, apenas vamos atualizar valores na pagina principal
 			if (inicializacao == false && getValores.pagina_atual == 0) {
+				tft.setTextSize(2);
 
 				xQueueReceive(tempmotorQueue, &temp_motor, 0);
 
@@ -302,12 +305,60 @@ void vIniciarDisplay(void *pvParameters) {
 			}
 
 			if (inicializacao == true && getValores.pagina_atual == 2) {
-				//Desenhar tabela IGN
+
+				uint16_t textColor = ILI9341_WHITE;
+				  uint16_t lineColor = ILI9341_WHITE;
+				  uint16_t bgColor = ILI9341_BLACK;
+
+				  // Limpa a tela
+				  tft.fillScreen(bgColor);
+
+				  // Define o número de linhas e colunas
+				  int numRows = 12;
+				  int numCols = 16;
+
+				  // Define o tamanho da tabela
+				  int startX = 5;
+				  int startY = 5;
+				  int cellWidth = 18;
+				  int cellHeight = 18;
+
+				  // Define o tamanho do texto
+				  tft.setTextSize(1);
+
+				  // Desenha as linhas horizontais
+				  for (int i = 0; i <= numRows; i++) {
+				    tft.drawLine(startX, startY + i * cellHeight, startX + numCols * cellWidth, startY + i * cellHeight, lineColor);
+				  }
+
+				  // Desenha as linhas verticais
+				  for (int i = 0; i <= numCols; i++) {
+				    tft.drawLine(startX + i * cellWidth, startY, startX + i * cellWidth, startY + numRows * cellHeight, lineColor);
+				  }
+
+				  // Preenche a tabela com texto
+				  for (int row = 0; row < numRows; row++) {
+				    for (int col = 0; col < numCols; col++) {
+				      String cellText = String(row + 1) + "," + String(col + 1);
+				      int16_t textWidth = cellText.length() * 6; // Cada caractere tem ~6px de largura em setTextSize(1)
+				      int16_t textHeight = 8; // A altura do texto em setTextSize(1) é ~8px
+
+				      // Calcula as coordenadas para centralizar o texto
+				      int textX = startX + col * cellWidth + (cellWidth - textWidth) / 2;
+				      int textY = startY + row * cellHeight + (cellHeight - textHeight) / 2;
+
+				      tft.setCursor(textX, textY);
+				      tft.setTextColor(textColor, bgColor);
+				      tft.print(cellText);
+				    }
+				  }
+			/*	//Desenhar tabela IGN
 				tft.fillScreen(ILI9341_BLACK);
 				tft.setTextColor(ILI9341_WHITE, ILI9341_BLACK);
 				tft.setCursor(160, 150);
 				tft.setTextSize(2);
 				tft.print("DESENHAR TABELA IGN");
+				*/
 				inicializacao = false;
 			}
 
