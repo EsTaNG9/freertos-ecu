@@ -11,6 +11,16 @@
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
+#include <XPT2046_Touchscreen.h>
+
+// Imagens em bitmap
+#include "engauto.h" //logo automovel
+#include "logo_map.h" //logo map
+#include "logo_temp_motor.h" //logo temp_motor
+#include "logo_avanco.h"
+#include "logo_temp_gases_adm.h" //logo logo_humidade
+#include "logo_tps.h" //logo logo_tps
+#include "logo_rpm.h" //logo logo_rpm
 
 #include "tables.h"
 
@@ -42,6 +52,16 @@
 #define TFT_SCLK 18
 #define TFT_RST -1 // ligar ao 3V3
 
+// Pinos do controlador Touch
+#define XPT2046_IRQ 36   // T_IRQ
+#define XPT2046_MOSI 27  // T_DIN
+#define XPT2046_MISO 39  // T_OUT
+#define XPT2046_CLK 25   // T_CLK
+#define XPT2046_CS 14    // T_CS
+
+#define SCREEN_WIDTH 320
+#define SCREEN_HEIGHT 240
+
 #define INJ1_FREQ 1000 //Se o injector deadtime for 1ms@12V
 #define INJ1_TIMER LEDC_TIMER_3//Selecionar o timer a ser usado
 #define INJ1_RESO LEDC_TIMER_13_BIT//Resolução do timer utilizado
@@ -53,6 +73,9 @@
 Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK,
 TFT_RST, TFT_MISO);
 
+SPIClass touchscreenSPI = SPIClass(VSPI);
+XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
+
 /* The service routine for the interrupt.  This is the interrupt that the task
  will be synchronized with. */
 void IRAM_ATTR onPulse(void);
@@ -60,8 +83,9 @@ void coilDischargeTimer_callback(void *arg);
 //void IRAM_ATTR coilDischargeTimer(void);
 
 /* The tasks to be created. */
-void vInitDisplay(void *pvParameters);
+void vDisplay(void *pvParameters);
 void vBrain(void *pvParameters);
+//void vTouchDetection(void *pvparameters);
 
 //Declarar funcoes
 int getCrankAngle(int, int);
@@ -71,15 +95,50 @@ float interpolation(int, int, int);
 float getADC(int);
 //void setup_timers(void);
 
+//estruturas
+typedef struct {
+	bool proxima;
+	bool antes;
+	int pagina_atual;
+} pagina_t;
+
+typedef struct {
+	bool sincronizacao;
+	bool descargaBobine;
+	bool bombaCombustivel;
+
+	uint16_t RPM;
+	uint16_t ContadorDentes;
+	long tempoUltimoDente;
+	long tempoPenultimoDente;
+	long tempoFiltro;
+	long tempoPrimeiroDenteMenosUm;
+	long tempoPrimeiroDente;
+	long tempoPorGrau;
+
+	float MAP;
+	float TPS;
+	float CLT;
+	float IAT;
+	float MAP;
+} ecu_info_t;
+
 //Handles
-QueueHandle_t xRPM;
-QueueHandle_t xContadorDentes;
-QueueHandle_t xtempoUltimoDente;
-QueueHandle_t xtempoPenultimoDente;
-QueueHandle_t xMAP;
-QueueHandle_t xtempoPrimeiroDente;
-QueueHandle_t xtempoFiltro;
-QueueHandle_t xtempoPrimeiroDenteMenosUm;
+/*QueueHandle_t xRPM;
+ QueueHandle_t xContadorDentes;
+ QueueHandle_t xtempoUltimoDente;
+ QueueHandle_t xtempoPenultimoDente;
+ QueueHandle_t xMAP;
+ QueueHandle_t xtempoPrimeiroDente;
+ QueueHandle_t xtempoFiltro;
+ QueueHandle_t xtempoPrimeiroDenteMenosUm;*/
+
+QueueHandle_t xECU;
+QueueHandle_t xPagina;
+
+/* Protoripoa de semaforos para sincronizacao de interrupcoees*/
+SemaphoreHandle_t xPaginaMutex;
+SemaphoreHandle_t xECUMutex;
 
 // Timers
 esp_timer_handle_t coilTimer; //Definir a handle globalmente para a poder chamar na interrupcao
@@ -102,12 +161,12 @@ uint16_t desvioPrimeiroDenteTDC = 180; //Desvio real do TDC 1ºcil do primeiro d
 //QueueHandle_t xtempoAtual;
 
 volatile unsigned long tempoAtual_Brain = 1; // Para n dar erro no startup
-unsigned long tempoPorGrau = 0; // n pode ser volatile pq quero mandar valores para a queeue
-bool sincronizacao = false;
-volatile bool descargaBobine = LOW;
-volatile uint32_t contadorrevolucoes = 0;
-uint64_t atualRPS = 0;
-bool bombaCombustivel = false;
+//unsigned long tempoPorGrau = 0; // n pode ser volatile pq quero mandar valores para a queeue
+//bool sincronizacao = false;
+//volatile bool descargaBobine = LOW;
+//volatile uint32_t contadorrevolucoes = 0;
+//uint64_t atualRPS = 0;
+//bool bombaCombustivel = false;
 //unsigned long tempoDecorrido = 0;
 
 void setup(void) {
@@ -125,6 +184,7 @@ void setup(void) {
 	pinMode(bobine1Pin, OUTPUT);
 	pinMode(injetor1Pin, OUTPUT);
 	pinMode(MAPSensorPin, INPUT_PULLUP);
+	pinMode(XPT2046_CS, OUTPUT);
 	attachInterrupt(digitalPinToInterrupt(interruptPin), onPulse, RISING);
 
 	//Tive q definir primeiro o pwm, pq dps da erro, presumidamente, o esp tentava acessar dois timers iguais
@@ -144,20 +204,26 @@ void setup(void) {
 	ESP_ERROR_CHECK(esp_timer_start_periodic(coilTimer, 1000000)); // 5 seconds (5,000,000 µs)
 
 	//queues
-	xRPM = xQueueCreate(1, sizeof(uint16_t));
-	xContadorDentes = xQueueCreate(1, sizeof(uint16_t));
-	xtempoUltimoDente = xQueueCreate(1, sizeof(long));
-	xtempoPenultimoDente = xQueueCreate(1, sizeof(long));
-	xtempoFiltro = xQueueCreate(1, sizeof(long));
-	xtempoPrimeiroDenteMenosUm = xQueueCreate(1, sizeof(long));
-	xMAP = xQueueCreate(1, sizeof(float));
-	xtempoPrimeiroDente = xQueueCreate(1, sizeof(float));
+	/*xRPM = xQueueCreate(1, sizeof(uint16_t));
+	 xContadorDentes = xQueueCreate(1, sizeof(uint16_t));
+	 xtempoUltimoDente = xQueueCreate(1, sizeof(long));
+	 xtempoPenultimoDente = xQueueCreate(1, sizeof(long));
+	 xtempoFiltro = xQueueCreate(1, sizeof(long));
+	 xtempoPrimeiroDenteMenosUm = xQueueCreate(1, sizeof(long));
+	 xMAP = xQueueCreate(1, sizeof(float));
+	 xtempoPrimeiroDente = xQueueCreate(1, sizeof(float));*/
 
-	//xtempoAtual = xQueueCreate(1, sizeof(float));
+	xECU = xQueueCreate(1, sizeof(ecu_info_t));
+	xPagina = xQueueCreate(1, sizeof(pagina_t));
 
-	xTaskCreatePinnedToCore(vInitDisplay, "vInitDisplay", 2048, NULL, 1, NULL, 1);
+	//Semafro Mutex
+	xPaginaMutex = xSemaphoreCreateMutex();
+	xECUMutex = xSemaphoreCreateMutex();
+
+	// Criar tarefas
+	xTaskCreatePinnedToCore(vDisplay, "vDisplay", 2048, NULL, 1, NULL, 1);
 	xTaskCreatePinnedToCore(vBrain, "vBrain", 4096, NULL, 1, NULL, 1);
-	//xTaskCreatePinnedToCore(vGetMAP, "vGetMAP", 512, NULL, 1, NULL, 1);
+	//xTaskCreatePinnedToCore(vTouchDetection, "detectar touch", 8192, NULL, 3, NULL, 1);
 
 	if (DEBUG == "ON" && DEBUG_LEVEL <= 3) {
 		Serial.println("Setup acabou de correr");
@@ -165,28 +231,9 @@ void setup(void) {
 
 }
 
-/*void setup_timers(void) {
-
- //timers
- //coilTimer = timerBegin(1000000);
- //timerAttachInterrupt(coilTimer, &coilDischargeTimer);
- esp_timer_create_args_t coilTimer_args; //= { .callback = &coilDischargeTimer_callback, .arg = NULL, .name = "coilTimer" };
- coilTimer_args.arg = NULL, coilTimer_args.callback = &coilDischargeTimer_callback, coilTimer_args.name = "coilTimer";
- ESP_ERROR_CHECK(esp_timer_create(&coilTimer_args, &coilTimer));
- ESP_ERROR_CHECK(esp_timer_start_periodic(coilTimer, 1000000)); // 5 seconds (5,000,000 µs)
- // Configure the LEDC timer
-
- ledc_timer_config_t inj1_timer = { .speed_mode = INJ1_MODE, .duty_resolution = INJ1_RESO, .timer_num = INJ1_TIMER, .freq_hz = INJ1_FREQ, .clk_cfg = LEDC_AUTO_CLK };
- ESP_ERROR_CHECK(ledc_timer_config(&inj1_timer));
-
- // Configure the LEDC channel
- ledc_channel_config_t inj1_channel = { .gpio_num = injetor1Pin, .speed_mode = INJ1_MODE, .channel = INJ1_CHANNEL, .intr_type = LEDC_INTR_DISABLE, .timer_sel = INJ1_TIMER, .duty = 0, .hpoint = 0 };
- ESP_ERROR_CHECK(ledc_channel_config(&inj1_channel));
-
- printf("Timers setup complete\n");
- }*/
-
 void vBrain(void *pvParameters) {
+	pagina_t updateValores;
+	ecu_info_t getECU;
 	portBASE_TYPE xStatus;
 	unsigned long temp_tempoUltimoDente = 0, tempoUltimoDente = 1;
 	uint64_t temp_atualRPM = 0, atualRPM = 0;
@@ -199,67 +246,76 @@ void vBrain(void *pvParameters) {
 		loopAtual_Brain = tempoAtual_Brain;
 		tempoAtual_Brain = micros();
 
-		//xQueuePeek(xtempoUltimoDente, &temp_tempoUltimoDente, 0);
-		//Serial.println(temp_tempoUltimoDente);
-		//unsigned long tempoParaUltimoDente = (loopAtual_Brain - temp_tempoUltimoDente);
-		if (xQueuePeek(xtempoUltimoDente, &tempoUltimoDente, (TickType_t) 25) == pdPASS) {
-			//tempoUltimoDente = temp_tempoUltimoDente;
-		}
-		unsigned long tempoParaUltimoDente = (loopAtual_Brain - tempoUltimoDente);
+		if (xSemaphoreTake(xECUMutex, portMAX_DELAY) == pdTRUE && xQueuePeek(xECU, &getECU, portMAX_DELAY) == pdPASS) {
 
-		//Serial.println("Brain: RUNNING");
+			unsigned long tempoParaUltimoDente = (loopAtual_Brain - tempoUltimoDente);
 
-		if ((tempoParaUltimoDente < TEMPO_MAXIMO_MOTOR_MORRER) || (tempoParaUltimoDente > loopAtual_Brain)) {
-			int ultimaRPM = atualRPM;
-			getLowRPM();
-			if (xQueuePeek(xRPM, &temp_atualRPM, (TickType_t) 25) == pdPASS) { // Para calcular RPS
-				atualRPM = temp_atualRPM;
+			//Serial.println("Brain: RUNNING");
+
+			if ((tempoParaUltimoDente < TEMPO_MAXIMO_MOTOR_MORRER) || (tempoParaUltimoDente > loopAtual_Brain)) {
+				int ultimaRPM = atualRPM;
+				getLowRPM();
+				if (xQueuePeek(xRPM, &temp_atualRPM, (TickType_t) 25) == pdPASS) { // Para calcular RPS
+					atualRPM = temp_atualRPM;
+				}
+				//xQueuePeek(xRPM, &atualRPM, (TickType_t) 10);
+				if (bombaCombustivel == false) {
+					//digitalWrite(bombaCombustivel, HIGH);
+					bombaCombustivel = true;
+				} //Check if the fuel pump is on and turn it on if it isn't.
+
+			} else {
+				atualRPM = 0;
+				contadorrevolucoes = 0;
+				//bombaCombustivel = false;
+				sincronizacao = false;
+				atualRPS = 0;
+				//Serial.println("Brain: ENGINE DEAD :(");
 			}
-			//xQueuePeek(xRPM, &atualRPM, (TickType_t) 10);
-			if (bombaCombustivel == false) {
-				//digitalWrite(bombaCombustivel, HIGH);
-				bombaCombustivel = true;
-			} //Check if the fuel pump is on and turn it on if it isn't.
-			  //atualRPS = ldiv(1000000, (loopAtual_Brain - tempoUltimoloop_Brain)).quot * (atualRPM - ultimaRPM); //This is the RPM per second that the engine has accelerated/decelleratedin the last loop
-			  //Serial.println("Brain: ENGINE RUNNING");
-		} else {
-			atualRPM = 0;
-			contadorrevolucoes = 0;
-			//bombaCombustivel = false;
-			sincronizacao = false;
-			atualRPS = 0;
-			//Serial.println("Brain: ENGINE DEAD :(");
+
+			if (sincronizacao && (atualRPM > 0)) {
+
+				// Podemos configurar a ignição
+
+			}
+
+			//Updatar o valor MAP
+			temp_voltage = getADC(MAPSensorPin);
+			float temp_MAP = temp_voltage * (MAP_0V - MAP_5V) / (VREF_MINUS - VREF_PLUS);
+
+			//Código de detecção touch
+			if (touchscreen.tirqTouched() && touchscreen.touched() && xSemaphoreTake(xPaginaMutex, portMAX_DELAY) == pdTRUE && xQueuePeek(xPagina, &updateValores, 0) == pdPASS) {
+				int x, y, z;
+				// Get Touchscreen points
+				TS_Point p = touchscreen.getPoint();
+				// Calibrate Touchscreen points with map function to the correct width and height
+				x = map(p.x, 200, 3700, 1, SCREEN_WIDTH); //COORDENADA X
+				y = map(p.y, 240, 3800, 1, SCREEN_HEIGHT); //COORDENADA Y
+				z = p.z; //PRESSAO
+
+				if (x < 160) {
+					Serial.print("NEXTTTT");
+					updateValores.proxima = true;
+					updateValores.antes = false; //redundancia
+
+				} else {
+					Serial.print("PREVIOUS");
+					updateValores.antes = true;
+					updateValores.proxima = false; //redundancia
+				}
+
+				xQueueOverwrite(xPagina, &updateValores);
+				xSemaphoreGive(xPaginaMutex);
+
+			}
+
 		}
-
-		if (sincronizacao && (atualRPM > 0)) {
-
-			// Podemos configurar a ignição
-
-		}
-
-		//Updatar o valor MAP
-		temp_voltage = getADC(MAPSensorPin);
-		float temp_MAP = temp_voltage * (MAP_0V - MAP_5V) / (VREF_MINUS - VREF_PLUS);
-		//xQueueSendToFront(xMAP, &temp_MAP, portMAX_DELAY);
-		//Serial.println((int) temp_MAP);
-
-		//int anguloCambota = getCrankAngle(tempoPorGrau);
-
-		/*Serial.println(sincronizacao ? "true" : "false");
-
-		 Serial.print("atualRPS: ");
-		 Serial.println(atualRPS);
-
-		 Serial.print("anguloCambota: ");
-		 Serial.println(anguloCambota);
-
-		 Serial.print("contadorrevolucoes: ");
-		 Serial.println(contadorrevolucoes);*/
 
 		if ( DEBUG == "ON" && DEBUG_LEVEL <= 2) {
 			Serial.print("Correu a task: ");
 			Serial.println(pcTaskGetTaskName(NULL));
 		}
+
 		vTaskDelay(5 / portTICK_PERIOD_MS);
 	}
 }
@@ -349,15 +405,15 @@ void coilDischargeTimer_callback(void *arg) {
 	ESP_ERROR_CHECK(ledc_set_duty(INJ1_MODE, INJ1_CHANNEL, (int)duty));
 	ESP_ERROR_CHECK(ledc_update_duty(INJ1_MODE, INJ1_CHANNEL));
 
-	if ( DEBUG == "ON" && DEBUG_LEVEL <= 2) {
-		printf("Duty Cycle VE: %d\n", (int) duty);
-		Serial.print("Número total de dentes: ");
-		Serial.println(numRealDentes);
-		Serial.print("RPM: ");
-		Serial.println(temp_atualRPM);
-		Serial.print("advance: ");
-		Serial.println(interpolation(50, 2500, 0));
-	}
+	//if ( DEBUG == "ON" && DEBUG_LEVEL <= 2) {
+	printf("Duty Cycle VE: %d\n", (int) duty);
+	Serial.print("Número total de dentes: ");
+	Serial.println(numRealDentes);
+	Serial.print("RPM: ");
+	Serial.println(temp_atualRPM);
+	Serial.print("advance: ");
+	Serial.println(interpolation(50, 2500, 0));
+	//}
 
 	//prntIGN();
 
@@ -451,25 +507,324 @@ void IRAM_ATTR onPulse(void) {
 	}
 }
 
-void vInitDisplay(void *pvParameters) {
-// Inicializar o tft
+void vDisplay(void *pvParameters) {
+	float temp_motor = 0, map = 0, tps = 0, avanco = 0;
+	uint16_t rpm = 65530;
+	char buffer[10];
+	bool inicializacao = true;
+
+	pagina_t getValores;
+	getValores.proxima = false;
+	getValores.antes = false;
+	getValores.pagina_atual = 0;
+	xQueueOverwrite(xPagina, &getValores);
+
+	TickType_t xLastWakeTime = xTaskGetTickCount();
+
+	touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
+	touchscreen.begin(touchscreenSPI);
+	touchscreen.setRotation(3);
+
 	tft.begin();
-// Colocar fundo preto
-	tft.fillScreen(ILI9341_BLACK);
-// Definir orientação da escrita
-	tft.setRotation(0);
+	tft.setRotation(3);
 
 	for (;;) {
-		tft.setCursor(0, 10);
-		tft.setTextColor(ILI9341_WHITE);
-		tft.setTextSize(2);
-		tft.println(" Microcontroladores ");
 
-		if ( DEBUG == "ON" && DEBUG_LEVEL <= 2) {
-			Serial.print("Correu a task: ");
-			Serial.println(pcTaskGetTaskName(NULL));
+		if (xSemaphoreTake(xPaginaMutex, portMAX_DELAY) == pdTRUE && xQueuePeek(xPagina, &getValores, portMAX_DELAY) == pdPASS) {
+			//atualizar pagina
+			if (getValores.proxima == true) {
+				getValores.proxima = false;
+				getValores.antes = false;
+				getValores.pagina_atual = ((getValores.pagina_atual) + 1);
+				if (getValores.pagina_atual > 2) {
+					getValores.pagina_atual = 0;
+				}
+				inicializacao = true;
+				//xQueueOverwrite(xPagina, &getValores.proxima);
+				xQueueOverwrite(xPagina, &getValores);
+				if ( DEBUG == "ON" && DEBUG_LEVEL <= 3) {
+					Serial.println("proxima");
+					Serial.println(getValores.pagina_atual);
+				}
+			}
+
+			if (getValores.antes == true) {
+				getValores.antes = false;
+				getValores.proxima = false;
+				if (getValores.pagina_atual <= 0) {
+					getValores.pagina_atual = 2;
+				} else {
+					getValores.pagina_atual--;
+				}
+				inicializacao = true;
+				//xQueueOverwrite(xPagina, &getValores.antes);
+				xQueueOverwrite(xPagina, (void* )&getValores);
+				if ( DEBUG == "ON" && DEBUG_LEVEL <= 3) {
+					Serial.println("antes");
+					Serial.println(getValores.pagina_atual);
+				}
+			}
+			xQueueOverwrite(xPagina, (void* )&getValores);
+			xSemaphoreGive(xPaginaMutex);
+
+			//Updates de valores, apenas vamos atualizar valores na pagina principal
+			if (inicializacao == false && getValores.pagina_atual == 0) {
+				tft.setTextSize(2);
+
+				//xQueueReceive(tempmotorQueue, &temp_motor, 0);
+
+				// Atualiza o valor de `tps`
+				tps += 0.01; // Incrementa `tps` em passos de 0.01
+				if (tps >= 100.0)
+					tps = 0.0; // Reinicia para 0 quando atinge 100
+
+				tft.setCursor(160, 150);
+				tft.setTextSize(1);
+				tft.print(temp_motor);
+				tft.print((char) 167);
+				tft.print("C");
+
+				tft.setCursor(60, 50);
+				tft.print(map);
+				tft.print((char) 167);
+				tft.print("C");
+
+				tft.setCursor(110, 50);
+				tft.print((char) 167);
+				tft.print("C");
+
+				tft.setCursor(16, 110);
+				tft.print("%");
+
+				dtostrf(tps, 5, 2, buffer);
+				tft.setCursor(130, 230);
+				tft.print(tps);
+				tft.print("%");
+
+				sprintf(buffer, "%5d", rpm);
+				rpm++;
+				tft.setCursor(250, 230);
+				tft.print(buffer);
+
+				if ( DEBUG == "ON" && DEBUG_LEVEL <= 3) {
+					Serial.println("  Tarefa: Update valores");
+				}
+			}
+
+			// Desenhos estacionários
+			if (inicializacao == true && getValores.pagina_atual == 1) {
+				//Desenhar tabela VE
+				inicializacao = false;
+
+				uint16_t textColor = ILI9341_WHITE;
+				uint16_t lineColor = ILI9341_WHITE;
+				uint16_t bgColor = ILI9341_BLACK;
+
+				// Limpa a tela
+				tft.fillScreen(bgColor);
+
+				// Define o número de linhas e colunas
+				int numLin = 12;
+				int numCol = 16;
+
+				// Define o tamanho da tabela
+				int startX = 5;
+				int startY = 5;
+				int cellWidth = 18;
+				int cellHeight = 18;
+
+				// Define o tamanho do texto
+				tft.setTextSize(1);
+
+				// Desenha as linhas horizontais
+				for (int i = 0; i <= numLin; i++) {
+					tft.drawLine(startX, startY + i * cellHeight, startX + numCol * cellWidth, startY + i * cellHeight, lineColor);
+				}
+
+				// Desenha as linhas verticais
+				for (int i = 0; i <= numCol; i++) {
+					tft.drawLine(startX + i * cellWidth, startY, startX + i * cellWidth, startY + numLin * cellHeight, lineColor);
+				}
+
+				// Preenche a tabela com texto
+				for (int row = 0; row < numLin; row++) {
+					for (int col = 0; col < numCol; col++) {
+						String cellText = String(row + 1) + "," + String(col + 1);
+						int16_t textWidth = cellText.length() * 6; // Cada caractere tem ~6px de largura em setTextSize(1)
+						int16_t textHeight = 8; // A altura do texto em setTextSize(1) é ~8px
+
+						// Calcula as coordenadas para centralizar o texto
+						int textX = startX + col * cellWidth + (cellWidth - textWidth) / 2;
+						int textY = startY + row * cellHeight + (cellHeight - textHeight) / 2;
+
+						tft.setCursor(textX, textY);
+						tft.setTextColor(textColor, bgColor);
+						tft.print(cellText);
+					}
+				}
+			}
+
+			if (inicializacao == true && getValores.pagina_atual == 2) {
+
+				//Desenhar tabela IGN
+
+				uint16_t textColor = ILI9341_WHITE;
+				uint16_t lineColor = ILI9341_WHITE;
+				uint16_t bgColor = ILI9341_BLACK;
+
+				// Limpa a tela
+				tft.fillScreen(bgColor);
+
+				// Define o número de linhas e colunas
+				int numRows = 12;
+				int numCols = 16;
+
+				// Define o tamanho da tabela
+				int startX = 5;
+				int startY = 5;
+				int cellWidth = 18;
+				int cellHeight = 18;
+
+				// Define o tamanho do texto
+				tft.setTextSize(1);
+
+				// Desenha as linhas horizontais
+				for (int i = 0; i <= numRows; i++) {
+					tft.drawLine(startX, startY + i * cellHeight, startX + numCols * cellWidth, startY + i * cellHeight, lineColor);
+				}
+
+				// Desenha as linhas verticais
+				for (int i = 0; i <= numCols; i++) {
+					tft.drawLine(startX + i * cellWidth, startY, startX + i * cellWidth, startY + numRows * cellHeight, lineColor);
+				}
+
+				// Preenche a tabela com texto
+				for (int row = 0; row < numRows; row++) {
+					for (int col = 0; col < numCols; col++) {
+						String cellText = String(row + 1) + "," + String(col + 1);
+						int16_t textWidth = cellText.length() * 6; // Cada caractere tem ~6px de largura em setTextSize(1)
+						int16_t textHeight = 8; // A altura do texto em setTextSize(1) é ~8px
+
+						// Calcula as coordenadas para centralizar o texto
+						int textX = startX + col * cellWidth + (cellWidth - textWidth) / 2;
+						int textY = startY + row * cellHeight + (cellHeight - textHeight) / 2;
+
+						tft.setCursor(textX, textY);
+						tft.setTextColor(textColor, bgColor);
+						tft.print(cellText);
+					}
+				}
+				/*	//Desenhar tabela IGN
+				 tft.fillScreen(ILI9341_BLACK);
+				 tft.setTextColor(ILI9341_WHITE, ILI9341_BLACK);
+				 tft.setCursor(160, 150);
+				 tft.setTextSize(2);
+				 tft.print("DESENHAR TABELA IGN");
+				 */
+				inicializacao = false;
+			}
+
+			if (inicializacao == true && getValores.pagina_atual == 0) {
+				//Desenhar pagina principal
+
+				tft.fillScreen(ILI9341_BLACK);
+				tft.setTextColor(ILI9341_WHITE, ILI9341_BLACK);
+
+				//  LogoEAU
+				int altura = 34, largura = 320;   // Definicao da dimensao da imagem
+				int linha, coluna, inicio_x = 0; // Definicao de ints temporarios
+				// Ler a linha do bitmap
+				for (linha = 0; linha < altura; linha++) {
+					// Ler coluna do bitmap
+					for (coluna = 0; coluna < largura; coluna++) {
+						tft.drawPixel(coluna, linha, pgm_read_word(engauto + inicio_x)); // Desenhar o pixel no sitio correto
+						inicio_x++;
+					}
+				}
+
+				// RPM
+				altura = 40;
+				largura = 78;   // Definicao da dimensao da imagem
+				inicio_x = 0;  // Definicao de ints temporarios
+				// Ler a linha do bitmap
+				for (linha = 0; linha < altura; linha++) {
+					// Ler coluna do bitmap
+					for (coluna = 0; coluna < largura; coluna++) {
+						tft.drawPixel(coluna + 230, linha + 180, pgm_read_word(logo_rpm + inicio_x)); // Desenhar o pixel no sitio correto
+						inicio_x++;
+					} // end pixel
+				}
+
+				// TPS
+				altura = 40;
+				largura = 78;   // Definicao da dimensao da imagem
+				inicio_x = 0;  // Definicao de ints temporarios
+				// Ler a linha do bitmap
+				for (linha = 0; linha < altura; linha++) {
+					// Ler coluna do bitmap
+					for (coluna = 0; coluna < largura; coluna++) {
+						tft.drawPixel(coluna + 110, linha + 180, pgm_read_word(logo_tps + inicio_x)); // Desenhar o pixel no sitio correto
+						inicio_x++;
+					} // end pixel
+				}
+
+				// Temp Gases de Admissão
+				altura = 45;
+				largura = 78;   // Definicao da dimensao da imagem
+				inicio_x = 0;  // Definicao de ints temporarios
+				// Ler a linha do bitmap
+				for (linha = 0; linha < altura; linha++) {
+					// Ler coluna do bitmap
+					for (coluna = 0; coluna < largura; coluna++) {
+						tft.drawPixel(coluna + 20, linha + 80, pgm_read_word(logo_temp_gases_adm + inicio_x)); // Desenhar o pixel no sitio correto
+						inicio_x++;
+					} // end pixel
+				}
+
+				// Avanço
+				altura = 60;
+				largura = 60;   // Definicao da dimensao da imagem
+				inicio_x = 0;  // Definicao de ints temporarios
+				// Ler a linha do bitmap
+				for (linha = 0; linha < altura; linha++) {
+					// Ler coluna do bitmap
+					for (coluna = 0; coluna < largura; coluna++) {
+						tft.drawPixel(coluna + 20, linha + 170, pgm_read_word(logo_avanco + inicio_x)); // Desenhar o pixel no sitio correto
+						inicio_x++;
+					} // end pixel
+				}
+
+				// MAP
+				altura = 78;
+				largura = 78;   // Definicao da dimensao da imagem
+				inicio_x = 0;  // Definicao de ints temporarios
+				// Ler a linha do bitmap
+				for (linha = 0; linha < altura; linha++) {
+					// Ler coluna do bitmap
+					for (coluna = 0; coluna < largura; coluna++) {
+						tft.drawPixel(coluna + 230, linha + 60, pgm_read_word(logo_map + inicio_x)); // Desenhar o pixel no sitio correto
+						inicio_x++;
+					} // end pixel
+				}
+
+				// Temp. Motor
+				altura = 78;    // Definicao da dimensao da imagem
+				largura = 78;   // Definicao da dimensao da imagem
+				inicio_x = 0;   // Definicao de ints temporarios
+				// Ler a linha do bitmap
+				for (linha = 0; linha < altura; linha++) {
+					// Ler coluna do bitmap
+					for (coluna = 0; coluna < largura; coluna++) {
+						tft.drawPixel(coluna + 140, linha + 60, pgm_read_word(logo_temp_motor + inicio_x)); // Desenhar o pixel no sitio correto
+						inicio_x++;
+					} // end pixel
+				}
+
+				inicializacao = false;
+			}
+
+			vTaskDelayUntil(&xLastWakeTime, (1000 / portTICK_PERIOD_MS));
 		}
-		vTaskDelay(500 / portTICK_PERIOD_MS);
 	}
 }
 
@@ -595,15 +950,6 @@ float getADC(int Pino) {
 
 	temp_valorAnalogico = analogRead(Pino);
 	temp_ddpAnalogica = temp_valorAnalogico * (VREF_PLUS - VREF_MINUS) / (pow(2.0, (float) ADC_RESOLUTION)) + VREF_MINUS;
-	//float voltage = (temp_valorAnalogico / 4095.0) * 5.0;
-
-	//Serial.println(temp_valorAnalogico);
-	//Serial.println(voltage);
-	//Serial.println(voltage);
-
-	// temp_ADCValue = 45.2042 * temp_ddpAnalogica;
-
-	//xQueueSendToFront(xMAP, &temp_MAPValue, 0);
 
 	if ( DEBUG == "ON" && DEBUG_LEVEL <= 2) {
 		Serial.println("Correu a função getADC() ");
