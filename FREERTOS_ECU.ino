@@ -296,19 +296,68 @@ void vIniciarDisplay(void *pvParameters) {
 			// Desenhos estacionários
 			if (inicializacao == true && getValores.pagina_atual == 1) {
 				//Desenhar tabela VE
+				/*
 				tft.fillScreen(ILI9341_BLACK);
 				tft.setTextColor(ILI9341_WHITE, ILI9341_BLACK);
 				tft.setCursor(160, 150);
 				tft.setTextSize(2);
 				tft.print("DESENHAR TABELA VE");
+				*/
 				inicializacao = false;
+
+				uint16_t textColor = ILI9341_WHITE;
+							uint16_t lineColor = ILI9341_WHITE;
+							uint16_t bgColor = ILI9341_BLACK;
+
+							  // Limpa a tela
+							  tft.fillScreen(bgColor);
+
+							  // Define o número de linhas e colunas
+							  int numLin = 12;
+							  int numCol = 16;
+
+							  // Define o tamanho da tabela
+							  int startX = 5;
+							  int startY = 5;
+							  int cellWidth = 18;
+							  int cellHeight = 18;
+
+							  // Define o tamanho do texto
+							  tft.setTextSize(1);
+
+							  // Desenha as linhas horizontais
+							  for (int i = 0; i <= numLin; i++) {
+							    tft.drawLine(startX, startY + i * cellHeight, startX + numCol * cellWidth, startY + i * cellHeight, lineColor);
+							  }
+
+							  // Desenha as linhas verticais
+							  for (int i = 0; i <= numCol; i++) {
+							    tft.drawLine(startX + i * cellWidth, startY, startX + i * cellWidth, startY + numLin * cellHeight, lineColor);
+							  }
+
+							  // Preenche a tabela com texto
+							  for (int row = 0; row < numLin; row++) {
+							    for (int col = 0; col < numCol; col++) {
+							      String cellText = String(row + 1) + "," + String(col + 1);
+							      int16_t textWidth = cellText.length() * 6; // Cada caractere tem ~6px de largura em setTextSize(1)
+							      int16_t textHeight = 8; // A altura do texto em setTextSize(1) é ~8px
+
+							      // Calcula as coordenadas para centralizar o texto
+							      int textX = startX + col * cellWidth + (cellWidth - textWidth) / 2;
+							      int textY = startY + row * cellHeight + (cellHeight - textHeight) / 2;
+
+							      tft.setCursor(textX, textY);
+							      tft.setTextColor(textColor, bgColor);
+							      tft.print(cellText);
+							    }
+							  }
 			}
 
 			if (inicializacao == true && getValores.pagina_atual == 2) {
 
 				uint16_t textColor = ILI9341_WHITE;
-				  uint16_t lineColor = ILI9341_WHITE;
-				  uint16_t bgColor = ILI9341_BLACK;
+				uint16_t lineColor = ILI9341_WHITE;
+				uint16_t bgColor = ILI9341_BLACK;
 
 				  // Limpa a tela
 				  tft.fillScreen(bgColor);
