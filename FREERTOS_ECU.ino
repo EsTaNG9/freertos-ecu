@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-//#include "libraries/spiffsVFS/spiffsVFS.h"
 #include "esp_system.h"
 #include "nvs_flash.h"
 #include "esp_task_wdt.h"
@@ -20,8 +19,8 @@
 #define VREF_PLUS  5
 #define VREF_MINUS  0.0
 
-#define MAP_5V  10 //kpa
-#define MAP_0V 100 //kpa
+#define MAP_5V  100 //kpa
+#define MAP_0V 10 //kpa
 
 #define TPS_5V  100 //%
 #define TPS_0V 0 //%
@@ -90,7 +89,7 @@ esp_timer_handle_t coilTimer; //Definir a handle globalmente para a poder chamar
 // pin to generate interrupts
 const uint8_t interruptPin = 4;
 //const uint8_t bombaCombustivelPin = 28;
-const uint8_t MAPSensorPin = 36;
+const uint8_t MAPSensorPin = 35;
 const uint8_t bobine1Pin = 32;
 const uint8_t injetor1Pin = 33;
 
@@ -125,7 +124,7 @@ void setup(void) {
 	pinMode(interruptPin, INPUT);
 	pinMode(bobine1Pin, OUTPUT);
 	pinMode(injetor1Pin, OUTPUT);
-	pinMode(MAPSensorPin, INPUT);
+	pinMode(MAPSensorPin, INPUT_PULLUP);
 	attachInterrupt(digitalPinToInterrupt(interruptPin), onPulse, RISING);
 
 	//Tive q definir primeiro o pwm, pq dps da erro, presumidamente, o esp tentava acessar dois timers iguais
@@ -193,7 +192,7 @@ void vBrain(void *pvParameters) {
 	uint64_t temp_atualRPM = 0, atualRPM = 0;
 	volatile unsigned long loopAtual_Brain = 1; // Para n dar erro no startup
 	unsigned long tempoUltimoloop_Brain = 0; // n pode ser volatile pq quero mandar valores para a queeue
-	float temp_ADCvalue = 0;
+	float temp_voltage = 0;
 
 	while (true) {
 		//loopAtual_Brain = tempoAtual_Brain - tempoUltimoloop_Brain;
@@ -239,13 +238,10 @@ void vBrain(void *pvParameters) {
 		}
 
 		//Updatar o valor MAP
-		temp_ADCvalue = getADC(MAPSensorPin);
-		int temp_MAP = (int) (temp_ADCvalue * (VREF_MINUS - VREF_PLUS) / (MAP_0V - MAP_5V));
-		xQueueSendToFront(xMAP, &temp_MAP, portMAX_DELAY);
-		//xQueueSendToFront(xMAP, &temp_MAP, (TickType_t ) 100);
-		Serial.println(temp_MAP);
-
-		//Serial.println(atualRPM);
+		temp_voltage = getADC(MAPSensorPin);
+		float temp_MAP = temp_voltage * (MAP_0V - MAP_5V) / (VREF_MINUS - VREF_PLUS);
+		//xQueueSendToFront(xMAP, &temp_MAP, portMAX_DELAY);
+		//Serial.println((int) temp_MAP);
 
 		//int anguloCambota = getCrankAngle(tempoPorGrau);
 
@@ -352,14 +348,16 @@ void coilDischargeTimer_callback(void *arg) {
 	duty = (interpolation(50, 2500, 1) / 0.012); // y = 0,012x (X0; Y0),(X8191;Y100)
 	ESP_ERROR_CHECK(ledc_set_duty(INJ1_MODE, INJ1_CHANNEL, (int)duty));
 	ESP_ERROR_CHECK(ledc_update_duty(INJ1_MODE, INJ1_CHANNEL));
-	printf("Duty Cycle VE: %d\n", (int) duty);
 
-	Serial.print("Número total de dentes: ");
-	Serial.println(numRealDentes);
-	Serial.print("RPM: ");
-	Serial.println(temp_atualRPM);
-	Serial.print("advance: ");
-	Serial.println(interpolation(50, 2500, 0));
+	if ( DEBUG == "ON" && DEBUG_LEVEL <= 2) {
+		printf("Duty Cycle VE: %d\n", (int) duty);
+		Serial.print("Número total de dentes: ");
+		Serial.println(numRealDentes);
+		Serial.print("RPM: ");
+		Serial.println(temp_atualRPM);
+		Serial.print("advance: ");
+		Serial.println(interpolation(50, 2500, 0));
+	}
 
 	//prntIGN();
 
@@ -591,12 +589,17 @@ void prntIGN(void) {
 }
 
 float getADC(int Pino) {
-	uint8_t temp_valorAnalogico;
+	int temp_valorAnalogico;
 	float temp_ddpAnalogica;
 	//float temp_ADCValue;
 
 	temp_valorAnalogico = analogRead(Pino);
 	temp_ddpAnalogica = temp_valorAnalogico * (VREF_PLUS - VREF_MINUS) / (pow(2.0, (float) ADC_RESOLUTION)) + VREF_MINUS;
+	//float voltage = (temp_valorAnalogico / 4095.0) * 5.0;
+
+	//Serial.println(temp_valorAnalogico);
+	//Serial.println(voltage);
+	//Serial.println(voltage);
 
 	// temp_ADCValue = 45.2042 * temp_ddpAnalogica;
 
