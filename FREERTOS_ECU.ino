@@ -89,7 +89,7 @@ void vBrain(void *pvParameters);
 
 //Declarar funcoes
 int getCrankAngle(int, int);
-void getLowRPM(void);
+int getLowRPM(long, long, int);
 void prntIGN(void);
 float interpolation(int, int, int);
 float getADC(int);
@@ -106,21 +106,21 @@ typedef struct {
 	bool sincronizacao;
 	bool descargaBobine;
 	bool bombaCombustivel;
-
 	uint16_t RPM;
+	uint16_t atualRPS;
 	uint16_t ContadorDentes;
+	uint16_t contadorrevolucoes;
 	long tempoUltimoDente;
 	long tempoPenultimoDente;
 	long tempoFiltro;
 	long tempoPrimeiroDenteMenosUm;
 	long tempoPrimeiroDente;
 	long tempoPorGrau;
-
+	long falhaAtual;
 	float MAP;
 	float TPS;
 	float CLT;
 	float IAT;
-	float MAP;
 } ecu_info_t;
 
 //Handles
@@ -198,21 +198,12 @@ void setup(void) {
 	//timers
 	//coilTimer = timerBegin(1000000);
 	//timerAttachInterrupt(coilTimer, &coilDischargeTimer);
-	esp_timer_create_args_t coilTimer_args; //= { .callback = &coilDischargeTimer_callback, .arg = NULL, .name = "coilTimer" };
-	coilTimer_args.arg = NULL, coilTimer_args.callback = &coilDischargeTimer_callback, coilTimer_args.name = "coilTimer";
-	ESP_ERROR_CHECK(esp_timer_create(&coilTimer_args, &coilTimer));
-	ESP_ERROR_CHECK(esp_timer_start_periodic(coilTimer, 1000000)); // 5 seconds (5,000,000 µs)
+	//esp_timer_create_args_t coilTimer_args; //= { .callback = &coilDischargeTimer_callback, .arg = NULL, .name = "coilTimer" };
+	//coilTimer_args.arg = NULL, coilTimer_args.callback = &coilDischargeTimer_callback, coilTimer_args.name = "coilTimer";
+	//ESP_ERROR_CHECK(esp_timer_create(&coilTimer_args, &coilTimer));
+	//ESP_ERROR_CHECK(esp_timer_start_periodic(coilTimer, 1000000)); // 5 seconds (5,000,000 µs)
 
 	//queues
-	/*xRPM = xQueueCreate(1, sizeof(uint16_t));
-	 xContadorDentes = xQueueCreate(1, sizeof(uint16_t));
-	 xtempoUltimoDente = xQueueCreate(1, sizeof(long));
-	 xtempoPenultimoDente = xQueueCreate(1, sizeof(long));
-	 xtempoFiltro = xQueueCreate(1, sizeof(long));
-	 xtempoPrimeiroDenteMenosUm = xQueueCreate(1, sizeof(long));
-	 xMAP = xQueueCreate(1, sizeof(float));
-	 xtempoPrimeiroDente = xQueueCreate(1, sizeof(float));*/
-
 	xECU = xQueueCreate(1, sizeof(ecu_info_t));
 	xPagina = xQueueCreate(1, sizeof(pagina_t));
 
@@ -220,8 +211,15 @@ void setup(void) {
 	xPaginaMutex = xSemaphoreCreateMutex();
 	xECUMutex = xSemaphoreCreateMutex();
 
+	//Assegurar valores iniciais nas queues
+	pagina_t initPagina = { false, false, 0 };
+	xQueueSend(xPagina, &initPagina, portMAX_DELAY);
+
+	ecu_info_t initECU = { false, LOW, LOW, 0, 0, 35, 0, 1, 0, 0, 0, 0, 0, 0, 100, 0, 90, 90 };
+	xQueueSend(xECU, &initECU, portMAX_DELAY);
+
 	// Criar tarefas
-	xTaskCreatePinnedToCore(vDisplay, "vDisplay", 2048, NULL, 1, NULL, 1);
+	xTaskCreatePinnedToCore(vDisplay, "vDisplay", 4096, NULL, 1, NULL, 1);
 	xTaskCreatePinnedToCore(vBrain, "vBrain", 4096, NULL, 1, NULL, 1);
 	//xTaskCreatePinnedToCore(vTouchDetection, "detectar touch", 8192, NULL, 3, NULL, 1);
 
@@ -245,78 +243,110 @@ void vBrain(void *pvParameters) {
 		//loopAtual_Brain = tempoAtual_Brain - tempoUltimoloop_Brain;
 		loopAtual_Brain = tempoAtual_Brain;
 		tempoAtual_Brain = micros();
+		//Serial.println("	gay");
 
-		if (xSemaphoreTake(xECUMutex, portMAX_DELAY) == pdTRUE && xQueuePeek(xECU, &getECU, portMAX_DELAY) == pdPASS) {
+		//if (xSemaphoreTake(xECUMutex, portMAX_DELAY) == pdTRUE && xQueuePeek(xECU, &getECU, portMAX_DELAY) == pdPASS) {
+		//xSemaphoreGive(xECUMutex);
+		if (xQueuePeek(xECU, &getECU, (TickType_t) 25) == pdPASS) {
+			//tempoUltimoDente = temp_tempoUltimoDente;
+		}
+		//xQueuePeek(xECU, &getECU, portMAX_DELAY);
+		//Serial.println(getECU.RPM);
+		/*if (xQueuePeek(xtempoUltimoDente, &tempoUltimoDente, (TickType_t) 25) == pdPASS) {
+		 //tempoUltimoDente = temp_tempoUltimoDente;
+		 }*/
 
-			unsigned long tempoParaUltimoDente = (loopAtual_Brain - tempoUltimoDente);
+		/*uint64_t tempoEntreDentes = (getECU.tempoUltimoDente - getECU.tempoPenultimoDente);
+		 if (tempoEntreDentes == 0) {
+		 } else {
 
-			//Serial.println("Brain: RUNNING");
+		 uint64_t rpm_temporary = (((60000000 / (tempoEntreDentes * 36)) + 1) * 2); //+1 pq falha, n sei pk x2??
+		 Serial.print("RPM: ");
+		 Serial.println(rpm_temporary);
+		 }*/
 
-			if ((tempoParaUltimoDente < TEMPO_MAXIMO_MOTOR_MORRER) || (tempoParaUltimoDente > loopAtual_Brain)) {
-				int ultimaRPM = atualRPM;
-				getLowRPM();
-				if (xQueuePeek(xRPM, &temp_atualRPM, (TickType_t) 25) == pdPASS) { // Para calcular RPS
-					atualRPM = temp_atualRPM;
-				}
-				//xQueuePeek(xRPM, &atualRPM, (TickType_t) 10);
-				if (bombaCombustivel == false) {
-					//digitalWrite(bombaCombustivel, HIGH);
-					bombaCombustivel = true;
-				} //Check if the fuel pump is on and turn it on if it isn't.
+		unsigned long tempoParaUltimoDente = (loopAtual_Brain - getECU.tempoUltimoDente);
 
-			} else {
-				atualRPM = 0;
-				contadorrevolucoes = 0;
-				//bombaCombustivel = false;
-				sincronizacao = false;
-				atualRPS = 0;
-				//Serial.println("Brain: ENGINE DEAD :(");
-			}
+		atualRPM = getLowRPM(getECU.tempoUltimoDente, getECU.tempoPenultimoDente, getECU.RPM);
 
-			if (sincronizacao && (atualRPM > 0)) {
+		//Serial.println("Brain: RUNNING");
 
-				// Podemos configurar a ignição
+		if ((tempoParaUltimoDente < TEMPO_MAXIMO_MOTOR_MORRER) || (tempoParaUltimoDente > loopAtual_Brain)) {
+			int ultimaRPM = atualRPM;
+			//atualRPM = getECU.RPM;
 
-			}
+			atualRPM = getLowRPM(getECU.tempoUltimoDente, getECU.tempoPenultimoDente, getECU.RPM);
 
-			//Updatar o valor MAP
-			temp_voltage = getADC(MAPSensorPin);
-			float temp_MAP = temp_voltage * (MAP_0V - MAP_5V) / (VREF_MINUS - VREF_PLUS);
+			/*/Serial.print("RPM: ");
+			 Serial.println(atualRPM);*/
+			//}
+			//xQueuePeek(xRPM, &atualRPM, (TickType_t) 10);
+			if (getECU.bombaCombustivel == false) {
+				//digitalWrite(bombaCombustivel, HIGH);
+				getECU.bombaCombustivel = true;
+			} //Check if the fuel pump is on and turn it on if it isn't.
 
-			//Código de detecção touch
-			if (touchscreen.tirqTouched() && touchscreen.touched() && xSemaphoreTake(xPaginaMutex, portMAX_DELAY) == pdTRUE && xQueuePeek(xPagina, &updateValores, 0) == pdPASS) {
-				int x, y, z;
-				// Get Touchscreen points
-				TS_Point p = touchscreen.getPoint();
-				// Calibrate Touchscreen points with map function to the correct width and height
-				x = map(p.x, 200, 3700, 1, SCREEN_WIDTH); //COORDENADA X
-				y = map(p.y, 240, 3800, 1, SCREEN_HEIGHT); //COORDENADA Y
-				z = p.z; //PRESSAO
+		} else {
+			atualRPM = 0;
+			getECU.contadorrevolucoes = 0;
+			//bombaCombustivel = false;
+			getECU.sincronizacao = false;
+			getECU.atualRPS = 0;
+			//Serial.println("Brain: ENGINE DEAD :(");
+		}
 
-				if (x < 160) {
-					Serial.print("NEXTTTT");
-					updateValores.proxima = true;
-					updateValores.antes = false; //redundancia
+		if (getECU.sincronizacao && (atualRPM > 0)) {
 
-				} else {
-					Serial.print("PREVIOUS");
-					updateValores.antes = true;
-					updateValores.proxima = false; //redundancia
-				}
-
-				xQueueOverwrite(xPagina, &updateValores);
-				xSemaphoreGive(xPaginaMutex);
-
-			}
+			// Podemos configurar a ignição
 
 		}
+
+		//Updatar o valor MAP
+		temp_voltage = getADC(MAPSensorPin);
+		float temp_MAP = temp_voltage * (MAP_0V - MAP_5V) / (VREF_MINUS - VREF_PLUS);
+		getECU.MAP = temp_MAP;
+
+		//Atualizar a Queue principal
+		//if (xSemaphoreTake(xECUMutex, portMAX_DELAY) == pdTRUE) {
+		if (xQueueOverwrite(xECU, &getECU) == pdPASS) {
+			//tempoUltimoDente = temp_tempoUltimoDente;
+		}
+		//xQueueOverwrite(xECU, &getECU);
+		//xSemaphoreGive(xECUMutex);
+		//}
+
+		//Código de detecção touch
+		if (touchscreen.tirqTouched() && touchscreen.touched() && xSemaphoreTake(xPaginaMutex, portMAX_DELAY) == pdTRUE && xQueuePeek(xPagina, &updateValores, 0) == pdPASS) {
+			int x, y, z;
+			// Get Touchscreen points
+			TS_Point p = touchscreen.getPoint();
+			// Calibrate Touchscreen points with map function to the correct width and height
+			x = map(p.x, 200, 3700, 1, SCREEN_WIDTH); //COORDENADA X
+			y = map(p.y, 240, 3800, 1, SCREEN_HEIGHT); //COORDENADA Y
+			z = p.z; //PRESSAO
+
+			if (x < 160) {
+				Serial.print("NEXTTTT");
+				updateValores.proxima = true;
+				updateValores.antes = false; //redundancia
+
+			} else {
+				Serial.print("PREVIOUS");
+				updateValores.antes = true;
+				updateValores.proxima = false; //redundancia
+			}
+
+			xQueueOverwrite(xPagina, &updateValores);
+			xSemaphoreGive(xPaginaMutex);
+
+		}
+		//}
 
 		if ( DEBUG == "ON" && DEBUG_LEVEL <= 2) {
 			Serial.print("Correu a task: ");
 			Serial.println(pcTaskGetTaskName(NULL));
 		}
-
-		vTaskDelay(5 / portTICK_PERIOD_MS);
+		vTaskDelay(25 / portTICK_PERIOD_MS);
 	}
 }
 
@@ -349,27 +379,19 @@ int getCrankAngle(int tempoPorGrau, int contadorDentes) {
 	return anguloCambota;
 }
 
-void getLowRPM(void) {
-	unsigned long temp_tempoUltimoDente = 1, temp_tempoPenultimoDente = 0;
-	//Maxima prioridade ou desativar interrupcoes
-	//taskDISABLE_INTERRUPTS();
-	//tempoEntreDentes = (tempoUltimoDente - tempoPenultimoDente);
-	//if (xQueuePeek(xtempoUltimoDente, &temp_tempoUltimoDente, (TickType_t) 250) == pdPASS && xQueuePeek(xtempoPenultimoDente, &temp_tempoPenultimoDente, (TickType_t) 250) == pdPASS) { // Para calcular RPS
-	xQueuePeek(xtempoUltimoDente, &temp_tempoUltimoDente, (TickType_t) 25);
-	xQueuePeek(xtempoPenultimoDente, &temp_tempoPenultimoDente, (TickType_t) 25);
-	uint64_t tempoEntreDentes = (temp_tempoUltimoDente - temp_tempoPenultimoDente);
-	if (tempoEntreDentes == 0) {
-		/*Serial.println("tempoEntreDentes: 0");
-		 Serial.print("temp_tempoUltimoDente: ");
-		 Serial.println(temp_tempoUltimoDente);
-		 Serial.print("temp_tempoPenultimoDente: ");
-		 Serial.println(temp_tempoPenultimoDente);*/
-	} else {
-		uint64_t rpm_temporary = (((60000000 / (tempoEntreDentes * 36)) + 1) * 2); //+1 pq falha, n sei pk x2??
-		if (xQueueOverwrite(xRPM, &rpm_temporary) == pdPASS) {
-		}
-	}
+int getLowRPM(long temp_tempoUltimoDente, long temp_tempoPenultimoDente, int temp_RPMatual) {
 
+	//unsigned long temp_tempoUltimoDente = 1, temp_tempoPenultimoDente = 0;
+
+	int tempoEntreDentes = (temp_tempoUltimoDente - temp_tempoPenultimoDente);
+	if (tempoEntreDentes == 0) {
+		return temp_RPMatual;
+	} else {
+
+		int rpm_temporary = (((60000000 / (tempoEntreDentes * 36)) + 1) * 2); //+1 pq falha, n sei pk x2??
+		return rpm_temporary;
+	}
+	//Serial.println("	gay");
 }
 
 //uint64_t tempoEntreDentes = (tempoUltimoDente - tempoPenultimoDente);
@@ -392,11 +414,12 @@ void getLowRPM(void) {
  portEXIT_CRITICAL_ISR(&coilTimerMux);*/
 //}
 void coilDischargeTimer_callback(void *arg) {
+	ecu_info_t getECU;
 	uint64_t temp_atualRPM = 0;
 	float duty = 0;
 
-	if (xQueuePeek(xRPM, &temp_atualRPM, (TickType_t) 250) == pdPASS) {
-		//atualRPM = temp_atualRPM;
+	if (xQueuePeek(xECU, &getECU, (TickType_t) 25) == pdPASS) {
+		temp_atualRPM = getECU.RPM;
 	}
 
 	digitalWrite(bobine1Pin, HIGH);
@@ -405,15 +428,15 @@ void coilDischargeTimer_callback(void *arg) {
 	ESP_ERROR_CHECK(ledc_set_duty(INJ1_MODE, INJ1_CHANNEL, (int)duty));
 	ESP_ERROR_CHECK(ledc_update_duty(INJ1_MODE, INJ1_CHANNEL));
 
-	//if ( DEBUG == "ON" && DEBUG_LEVEL <= 2) {
-	printf("Duty Cycle VE: %d\n", (int) duty);
-	Serial.print("Número total de dentes: ");
-	Serial.println(numRealDentes);
-	Serial.print("RPM: ");
-	Serial.println(temp_atualRPM);
-	Serial.print("advance: ");
-	Serial.println(interpolation(50, 2500, 0));
-	//}
+	if ( DEBUG == "ON" && DEBUG_LEVEL <= 2) {
+		printf("Duty Cycle VE: %d\n", (int) duty);
+		Serial.print("Número total de dentes: ");
+		Serial.println(numRealDentes);
+		Serial.print("RPM: ");
+		Serial.println(temp_atualRPM);
+		Serial.print("advance: ");
+		Serial.println(interpolation(50, 2500, 0));
+	}
 
 	//prntIGN();
 
@@ -421,35 +444,22 @@ void coilDischargeTimer_callback(void *arg) {
 
 // Interrupção gerada na transição do sinal do sensor de Hall
 void IRAM_ATTR onPulse(void) {
-	unsigned long tempoUltimoDente = 1, tempoPenultimoDente = 0, tempoAtual = 0, VALOR_QUEUE = 0, falhaAtual = 0, falhaObjetivo = 0, tempoPrimeiroDente = 0, tempoFiltro = 0, tempoPrimeiroDenteMenosUm = 0; // n pode ser volatile pq quero mandar valores para a queeue
+	//Serial.println("	gay");
+	ecu_info_t updateECU;
+	//unsigned long tempoUltimoDente = 1, tempoPenultimoDente = 0, tempoAtual = 0, VALOR_QUEUE = 0, falhaAtual = 0, falhaObjetivo = 0, tempoPrimeiroDente = 0, tempoFiltro = 0, tempoPrimeiroDenteMenosUm = 0; // n pode ser volatile pq quero mandar valores para a queeue
+	unsigned long falhaAtual = 0, falhaObjetivo = 0, tempoFiltro = 0, tempoAtual = 0; // n pode ser volatile pq quero mandar valores para a queeue
 	BaseType_t xHigherPriorityTaskWoken;
-	uint16_t contadorDentes = 35, VALOR_QUEUE_INT = 0;
+	//uint16_t contadorDentes = 35, VALOR_QUEUE_INT = 0;
 
-	if (xQueueReceiveFromISR(xtempoUltimoDente, &VALOR_QUEUE, &xHigherPriorityTaskWoken) == pdPASS) {
-		tempoUltimoDente = VALOR_QUEUE;
-		// Push it back to the queue
-		xQueueSendFromISR(xtempoUltimoDente, &tempoUltimoDente, &xHigherPriorityTaskWoken);
-	}
-	if (xQueueReceiveFromISR(xtempoPenultimoDente, &VALOR_QUEUE, &xHigherPriorityTaskWoken) == pdPASS) {
-		tempoPenultimoDente = VALOR_QUEUE;
-		// Push it back to the queue
-		xQueueSendFromISR(xtempoPenultimoDente, &tempoPenultimoDente, &xHigherPriorityTaskWoken);
-	}
-	if (xQueueReceiveFromISR(xtempoFiltro, &VALOR_QUEUE, &xHigherPriorityTaskWoken) == pdPASS) {
-		tempoFiltro = VALOR_QUEUE;
-		// Push it back to the queue
-		xQueueSendFromISR(xtempoFiltro, &tempoFiltro, &xHigherPriorityTaskWoken);
+	if (xQueueReceiveFromISR(xECU, &updateECU, &xHigherPriorityTaskWoken) == pdPASS) {
+
+		xQueueSendFromISR(xECU, &updateECU, &xHigherPriorityTaskWoken);
 	}
 
-	if (xQueueReceiveFromISR(xContadorDentes, &VALOR_QUEUE_INT, &xHigherPriorityTaskWoken) == pdPASS) {
-		contadorDentes = VALOR_QUEUE_INT;
-		// Push it back to the queue
-		xQueueSendFromISR(xContadorDentes, &contadorDentes, &xHigherPriorityTaskWoken);
-	}
 	tempoAtual = micros();
-	falhaAtual = tempoAtual - tempoUltimoDente;
+	falhaAtual = tempoAtual - updateECU.tempoUltimoDente;
 
-	if (falhaAtual < tempoFiltro) {
+	if (falhaAtual < updateECU.tempoFiltro) {
 		//Serial.println("Debounce");
 	} else {
 
@@ -457,36 +467,33 @@ void IRAM_ATTR onPulse(void) {
 		//Serial.println(falhaAtual);
 		//Add para guardar, queue aberturaAtual
 
-		falhaObjetivo = 1.5 * (tempoUltimoDente - tempoPenultimoDente);
+		falhaObjetivo = 1.5 * (updateECU.tempoUltimoDente - updateECU.tempoPenultimoDente);
 
-		if (falhaAtual > falhaObjetivo || contadorDentes > numRealDentes) {
-			if (xQueueReceiveFromISR(xtempoPrimeiroDente, &VALOR_QUEUE, &xHigherPriorityTaskWoken) == pdPASS) {
-				tempoPrimeiroDente = VALOR_QUEUE;
-				// Push it back to the queue
-				xQueueSendFromISR(xtempoPrimeiroDente, &tempoPrimeiroDente, &xHigherPriorityTaskWoken);
-			}
-			contadorDentes = 1;
-			tempoPrimeiroDenteMenosUm = tempoPrimeiroDente;
-			tempoPrimeiroDente = tempoAtual;
-			sincronizacao = true;
-			contadorrevolucoes++;
-			descargaBobine = LOW;
-			digitalWrite(bobine1Pin, descargaBobine);
-			xQueueOverwriteFromISR(xtempoPrimeiroDenteMenosUm, &tempoPrimeiroDenteMenosUm, &xHigherPriorityTaskWoken);
+		if (falhaAtual > falhaObjetivo || updateECU.ContadorDentes > numRealDentes) {
+
+			updateECU.ContadorDentes = 1;
+			updateECU.tempoPrimeiroDenteMenosUm = updateECU.tempoPrimeiroDente;
+			updateECU.tempoPrimeiroDente = tempoAtual;
+			updateECU.sincronizacao = true;
+			updateECU.contadorrevolucoes++;
+			updateECU.descargaBobine = LOW;
+			//digitalWrite(bobine1Pin, updateECU.descargaBobine);
+			digitalWrite(bobine1Pin, LOW);
+			//xQueueOverwriteFromISR(xtempoPrimeiroDenteMenosUm, &tempoPrimeiroDenteMenosUm, &xHigherPriorityTaskWoken);
 		} else {
-			tempoFiltro = falhaAtual * 0.25; // 25% de filtro
-			contadorDentes++;
+			updateECU.tempoFiltro = falhaAtual * 0.25; // 25% de filtro
+			updateECU.ContadorDentes++;
 			/*Serial.print("counter 1.5: ");
 			 Serial.println(contadorDentes);*/
-			xQueueOverwriteFromISR(xtempoFiltro, &tempoFiltro, &xHigherPriorityTaskWoken);
+			//xQueueOverwriteFromISR(xtempoFiltro, &tempoFiltro, &xHigherPriorityTaskWoken);
 			//xQueueSendToFrontFromISR(xContadorDentes, &contadorDentes, &xHigherPriorityTaskWoken);
 		}
 
-		if (xQueueOverwriteFromISR(xContadorDentes, &contadorDentes, &xHigherPriorityTaskWoken) == pdPASS) {
-			//printf("Value %d sent to the queue\n", contadorDentes);
-		}
+		/*if (xQueueOverwriteFromISR(xContadorDentes, &contadorDentes, &xHigherPriorityTaskWoken) == pdPASS) {
+		 //printf("Value %d sent to the queue\n", contadorDentes);
+		 }*/
 
-		if (contadorDentes == 3) {
+		if (updateECU.ContadorDentes == 3) {
 			/*//Buscar o valor da ignição
 			 float valorignicao = 7;
 			 float tempoPorGrau = (tempoUltimoDente / anguloPorDente);
@@ -496,14 +503,10 @@ void IRAM_ATTR onPulse(void) {
 			 Serial.println("TIMER HAS BEEN TRIGGERED!!!!!");*/
 		}
 
-		tempoPenultimoDente = tempoUltimoDente;
-		tempoUltimoDente = tempoAtual;
-		if (xQueueOverwriteFromISR(xtempoUltimoDente, &tempoUltimoDente, &xHigherPriorityTaskWoken) == pdPASS && xQueueOverwriteFromISR(xtempoPenultimoDente, &tempoPenultimoDente, &xHigherPriorityTaskWoken) == pdPASS) {
-			//printf("Value %d sent to the queue\n", tempoUltimoDente);
-		}
-		//xQueueOverwriteFromISR(xtempoUltimoDente, &tempoUltimoDente, &xHigherPriorityTaskWoken);
-		/*Serial.print("counter 3: ");
-		 Serial.println(contadorDentes);*/
+		updateECU.tempoPenultimoDente = updateECU.tempoUltimoDente;
+		updateECU.tempoUltimoDente = tempoAtual;
+
+		xQueueOverwriteFromISR(xECU, &updateECU, &xHigherPriorityTaskWoken);
 	}
 }
 
