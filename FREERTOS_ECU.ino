@@ -26,7 +26,7 @@
 #include "tables.h"
 
 //Caso não haja sinal em 1000ms, ent o motor foi abaixo
-#define TEMPO_MAXIMO_MOTOR_MORRER 1000
+#define TEMPO_MAXIMO_MOTOR_MORRER 1000 //mS
 
 //Config do ADC
 #define ADC_RESOLUTION 6
@@ -156,8 +156,6 @@ uint16_t numRealDentes = 35;
 uint16_t anguloPorDente = 360 / 36;
 uint16_t desvioPrimeiroDenteTDC = 180; //Desvio real do TDC 1ºcil do primeiro dente da roda
 
-volatile unsigned long tempoAtual_Brain = 1; // Para n dar erro no startup
-
 void setup(void) {
 	// Set loopTask max priority before deletion
 	vTaskPrioritySet(NULL, configMAX_PRIORITIES - 1);
@@ -224,15 +222,11 @@ void vBrain(void *pvParameters) {
 	portBASE_TYPE xStatus;
 	unsigned long temp_tempoUltimoDente = 0, tempoUltimoDente = 1;
 	int temp_atualRPM = 0, atualRPM = 0;
-	volatile unsigned long loopAtual_Brain = 1; // Para n dar erro no startup
-	unsigned long tempoUltimoloop_Brain = 0; // n pode ser volatile pq quero mandar valores para a queeue
 	float temp_voltage = 0;
 
 	while (true) {
 		//loopAtual_Brain = tempoAtual_Brain - tempoUltimoloop_Brain;
-		loopAtual_Brain = tempoAtual_Brain;
-		tempoAtual_Brain = micros();
-		//Serial.println("	gay");
+		long tempoAtual_Brain = micros();
 
 		//if (xSemaphoreTake(xECUMutex, portMAX_DELAY) == pdTRUE && xQueuePeek(xECU, &getECU, portMAX_DELAY) == pdPASS) {
 		//xSemaphoreGive(xECUMutex);
@@ -240,11 +234,11 @@ void vBrain(void *pvParameters) {
 			//tempoUltimoDente = temp_tempoUltimoDente;
 		}
 
-		unsigned long tempoParaUltimoDente = (loopAtual_Brain - getECU.tempoUltimoDente);
+		unsigned long tempoParaUltimoDente = (tempoAtual_Brain - getECU.tempoUltimoDente);
 
 		//Serial.println("Brain: RUNNING");
 
-		if ((tempoParaUltimoDente < TEMPO_MAXIMO_MOTOR_MORRER) || (tempoParaUltimoDente > loopAtual_Brain)) {
+		if (tempoParaUltimoDente < (TEMPO_MAXIMO_MOTOR_MORRER * 1000)) {
 			int ultimaRPM = atualRPM;
 			//atualRPM = getECU.RPM;
 
@@ -555,11 +549,12 @@ void vDisplay(void *pvParameters) {
 					tft.print("%");
 
 					//sprintf() usa demasiados recursos, dtostrf() é mais eficiente a converter floats to strings
-					sprintf(buffer, "%5.0d", getECU.RPM); //avancoIGN
+					//sprintf(buffer, "%5.0d", getECU.RPM);
+					dtostrf(getECU.RPM, 5, 0, buffer);
 					tft.setCursor(250, 220);
 					tft.print(buffer);
 
-					//Serial.println(getECU.RPM);
+					Serial.println(getECU.RPM);
 				}
 
 				if ( DEBUG == "ON" && DEBUG_LEVEL <= 3) {
