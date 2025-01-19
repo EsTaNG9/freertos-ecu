@@ -239,20 +239,6 @@ void vBrain(void *pvParameters) {
 		if (xQueuePeek(xECU, &getECU, (TickType_t) 250) == pdPASS) {
 			//tempoUltimoDente = temp_tempoUltimoDente;
 		}
-		//xQueuePeek(xECU, &getECU, portMAX_DELAY);
-		//Serial.println(getECU.RPM);
-		/*if (xQueuePeek(xtempoUltimoDente, &tempoUltimoDente, (TickType_t) 25) == pdPASS) {
-		 //tempoUltimoDente = temp_tempoUltimoDente;
-		 }*/
-
-		/*uint64_t tempoEntreDentes = (getECU.tempoUltimoDente - getECU.tempoPenultimoDente);
-		 if (tempoEntreDentes == 0) {
-		 } else {
-
-		 uint64_t rpm_temporary = (((60000000 / (tempoEntreDentes * 36)) + 1) * 2); //+1 pq falha, n sei pk x2??
-		 Serial.print("RPM: ");
-		 Serial.println(rpm_temporary);
-		 }*/
 
 		unsigned long tempoParaUltimoDente = (loopAtual_Brain - getECU.tempoUltimoDente);
 
@@ -305,6 +291,7 @@ void vBrain(void *pvParameters) {
 		getECU.CLT = temp_CLT;
 
 		getECU.RPM = atualRPM;
+
 		//Atualizar a Queue principal
 		if (xQueueOverwrite(xECU, &getECU) == pdPASS) {
 			//tempoUltimoDente = temp_tempoUltimoDente;
@@ -810,7 +797,7 @@ void vDisplay(void *pvParameters) {
 				for (linha = 0; linha < altura; linha++) {
 					// Ler coluna do bitmap
 					for (coluna = 0; coluna < largura; coluna++) {
-						tft.drawPixel(coluna + 140, linha + 60, pgm_read_word(logo_temp_motor + inicio_x)); // Desenhar o pixel no sitio correto
+						tft.drawPixel(coluna + 120, linha + 60, pgm_read_word(logo_temp_motor + inicio_x)); // Desenhar o pixel no sitio correto
 						inicio_x++;
 					} // end pixel
 				}
