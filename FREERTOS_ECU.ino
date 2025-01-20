@@ -93,6 +93,7 @@ void coilDischargeTimer_callback(void *arg);
 /* The tasks to be created. */
 void vDisplay(void *pvParameters);
 void vBrain(void *pvParameters);
+void vInterpolacao(void *pvParameters);
 
 //Declarar funcoes
 int getCrankAngle(int, int);
@@ -118,6 +119,7 @@ typedef struct {
 	uint16_t ContadorDentes;
 	uint16_t contadorrevolucoes;
 	uint16_t avancoIGN;
+	uint16_t dutyVE;
 	long tempoUltimoDente;
 	long tempoPenultimoDente;
 	long tempoFiltro;
@@ -138,6 +140,7 @@ QueueHandle_t xPagina;
 /* Protoripoa de semaforos para sincronizacao de interrupcoees*/
 SemaphoreHandle_t xPaginaMutex;
 SemaphoreHandle_t xECUMutex;
+SemaphoreHandle_t xInterpolacao; // Binary semaphore
 
 // Timers
 esp_timer_handle_t coilTimer; //Definir a handle globalmente para a poder chamar na interrupcao
@@ -172,7 +175,7 @@ void setup(void) {
 	pinMode(injetor1Pin, OUTPUT);
 	pinMode(MAPSensorPin, INPUT_PULLUP);
 	pinMode(XPT2046_CS, OUTPUT);
-	attachInterrupt(digitalPinToInterrupt(interruptPin), onPulse, RISING);
+	//attachInterrupt(digitalPinToInterrupt(interruptPin), onPulse, RISING);
 
 	//Tive q definir primeiro o pwm, pq dps da erro, presumidamente, o esp tentava acessar dois timers iguais
 	ledc_timer_config_t inj1_timer = { .speed_mode = INJ1_MODE, .duty_resolution = INJ1_RESO, .timer_num = INJ1_TIMER, .freq_hz = INJ1_FREQ, .clk_cfg = LEDC_AUTO_CLK };
@@ -197,6 +200,7 @@ void setup(void) {
 	//Semafro Mutex
 	xPaginaMutex = xSemaphoreCreateMutex();
 	xECUMutex = xSemaphoreCreateMutex();
+	xInterpolacao = xSemaphoreCreateBinary();
 
 	//Assegurar valores iniciais nas queues
 	pagina_t initPagina = { false, false, 0 };
@@ -206,9 +210,13 @@ void setup(void) {
 	xQueueSend(xECU, &initECU, portMAX_DELAY);
 
 	// Criar tarefas
-	xTaskCreatePinnedToCore(vDisplay, "vDisplay", 4096, NULL, 1, NULL, 1);
-	xTaskCreatePinnedToCore(vBrain, "vBrain", 4096, NULL, 1, NULL, 1);
+	xTaskCreatePinnedToCore(vDisplay, "vDisplay", 4096, NULL, 2, NULL, 1);
+	xTaskCreatePinnedToCore(vBrain, "vBrain", 4096, NULL, 2, NULL, 1);
+	xTaskCreatePinnedToCore(vInterpolacao, "vInterpolacao", 4096, NULL, 1, NULL, 1);
 	//xTaskCreatePinnedToCore(vTouchDetection, "detectar touch", 8192, NULL, 3, NULL, 1);
+
+	//iniciar interrupcoes apenas dps de correr o setup
+	attachInterrupt(digitalPinToInterrupt(interruptPin), onPulse, RISING);
 
 	if (DEBUG == "ON" && DEBUG_LEVEL <= 3) {
 		Serial.println("Setup acabou de correr");
@@ -227,6 +235,9 @@ void vBrain(void *pvParameters) {
 	while (true) {
 		//loopAtual_Brain = tempoAtual_Brain - tempoUltimoloop_Brain;
 		long tempoAtual_Brain = micros();
+
+		//float duty = interpolation(50, 2500, 1); // y = 0,012x (X0; Y0),(X8191;Y100)
+		//Serial.println(duty);
 
 		//if (xSemaphoreTake(xECUMutex, portMAX_DELAY) == pdTRUE && xQueuePeek(xECU, &getECU, portMAX_DELAY) == pdPASS) {
 		//xSemaphoreGive(xECUMutex);
@@ -317,7 +328,6 @@ void vBrain(void *pvParameters) {
 
 		}
 		//}
-
 		if ( DEBUG == "ON" && DEBUG_LEVEL <= 2) {
 			Serial.print("Correu a task: ");
 			Serial.println(pcTaskGetTaskName(NULL));
@@ -414,9 +424,11 @@ void IRAM_ATTR onPulse(void) {
 			updateECU.descargaBobine = LOW;
 
 			//setup injecao  -- DA ERRO QND TENTO INICIALIZAR O DUTY CYCLE
-			/*float duty = (interpolation(50, 2500, 1) / 0.012); // y = 0,012x (X0; Y0),(X8191;Y100)
-			 ESP_ERROR_CHECK(ledc_set_duty(INJ1_MODE, INJ1_CHANNEL, (int)duty));
-			 ESP_ERROR_CHECK(ledc_update_duty(INJ1_MODE, INJ1_CHANNEL));*/
+			//float duty = (interpolation(50, 2500, 1) / 0.012); // y = 0,012x (X0; Y0),(X8191;Y100)
+			//Serial.print(duty);
+			//ESP_ERROR_CHECK(ledc_set_duty(INJ1_MODE, INJ1_CHANNEL, (int)duty));
+			ESP_ERROR_CHECK(ledc_set_duty(INJ1_MODE, INJ1_CHANNEL, 10000000));
+			ESP_ERROR_CHECK(ledc_update_duty(INJ1_MODE, INJ1_CHANNEL));
 
 			//digitalWrite(bobine1Pin, updateECU.descargaBobine);
 			digitalWrite(bobine1Pin, LOW);
@@ -449,6 +461,43 @@ void IRAM_ATTR onPulse(void) {
 		updateECU.tempoUltimoDente = tempoAtual;
 
 		xQueueOverwriteFromISR(xECU, &updateECU, &xHigherPriorityTaskWoken);
+		xSemaphoreGiveFromISR(xInterpolacao, &xHigherPriorityTaskWoken);
+		/*if (xHigherPriorityTaskWoken) {
+		 vPortYield();
+
+		 }*/
+	}
+}
+
+void vInterpolacao(void *pvParameters) {
+	ecu_info_t updateECU;
+	while (1) {
+		if (xSemaphoreTake(xInterpolacao, portMAX_DELAY)) {
+
+			if (xQueuePeek(xECU, &updateECU, portMAX_DELAY) == pdPASS) {
+
+				int temp_MAP = (int) updateECU.MAP;
+				int temp_RPM = updateECU.RPM;
+
+				//VE
+				float interpolacao_result = (interpolation(temp_MAP, temp_RPM, 1) / 0.012); // y = 0,012x (X0; Y0),(X8191;Y100)
+				int duty = (int) interpolacao_result;
+
+				//IGN
+				int ign_result = interpolation(temp_MAP, temp_RPM, 0);
+
+				updateECU.avancoIGN = ign_result;
+				updateECU.dutyVE = duty;
+
+				xQueueOverwrite(xECU, &updateECU);
+
+				if ( DEBUG == "ON" && DEBUG_LEVEL <= 2) {
+					Serial.println(duty);
+					Serial.println(ign_result);
+				}
+
+			}
+		}
 	}
 }
 
