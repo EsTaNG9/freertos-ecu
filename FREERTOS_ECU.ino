@@ -1,3 +1,16 @@
+/*
+ Alexandre Bernardo Nº2213099
+ João Serrada Nº2192349
+ IPLEIRIA - Instituto Politécnico de Leiria
+ ESTG - Escola Superior de Tecnologia e Gestão
+ LEEC- Licenciatura em Engenharia Eletrotécnica e de Computadores
+ SEEV - Sistemas Elétricos e Eletrónicos de Veículos
+
+ TP1: Pretende-se desenvolver uma controlador básico para um motor de combustão interna monocilindrico a injeção e ignição eletronicas
+
+ LINK: https://youtube.com/shorts/LGoChy05eWk?si=FkxpbRwJG1KGSUmk
+ */
+
 #include <math.h>
 #include "Arduino.h"
 #include <stdio.h>
