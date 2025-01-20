@@ -96,7 +96,7 @@ void vBrain(void *pvParameters);
 void vInterpolacao(void *pvParameters);
 
 //Declarar funcoes
-int getCrankAngle(int, int);
+int getCrankAngle(long, long, int);
 int getLowRPM(long, long, int);
 void prntIGN(void);
 float interpolation(int, int, int);
@@ -127,6 +127,7 @@ typedef struct {
 	long tempoPrimeiroDente;
 	long tempoPorGrau;
 	long falhaAtual;
+	long timerIGN;
 	float MAP;
 	float TPS;
 	float CLT;
@@ -211,7 +212,7 @@ void setup(void) {
 	pagina_t initPagina = { false, false, 0 };
 	xQueueSend(xPagina, &initPagina, portMAX_DELAY);
 
-	ecu_info_t initECU = { false, LOW, LOW, 0, 0, 35, 0, 10, 1, 0, 0, 0, 0, 0, 0, 100, 0, 90, 90 };
+	ecu_info_t initECU = { false, LOW, LOW, 0, 0, 35, 0, 10, 1, 0, 0, 0, 0, 0, 0, 100, 1000, 0, 90, 90 };
 	xQueueSend(xECU, &initECU, portMAX_DELAY);
 
 	// Criar tarefas
@@ -342,9 +343,9 @@ void vBrain(void *pvParameters) {
 }
 
 /* Nota: n estou a conseguir implementar as queeue peeks sem crashar cpu*/
-int getCrankAngle(int tempoPorGrau, int contadorDentes) {
+int getCrankAngle(long tempoUltimoDente, long tempoPorGrau, int contadorDentes) {
 	unsigned long temp_tempoUltimoDente;
-	unsigned long tempoUltimoDente = 1; // n pode ser volatile pq quero mandar valores para a queeue
+	//unsigned long tempoUltimoDente = 1; // n pode ser volatile pq quero mandar valores para a queeue
 	//int temp_contadorDentes;
 
 // Prioridade máxima
@@ -359,9 +360,13 @@ int getCrankAngle(int tempoPorGrau, int contadorDentes) {
 	//Estimar o num de graus desde o ultimo dente
 	//long tempoDecorridoDesdeUltimoDente = micros() - temp_tempoUltimoDente;
 	long tempoDecorridoDesdeUltimoDente = micros() - tempoUltimoDente;
+	//Serial.println("erro 0");
 	//tempoPorGrau = (temp_tempoUltimoDente / anguloPorDente); //Se n funcionar faço apartir da rpm
 	tempoPorGrau = (tempoUltimoDente / anguloPorDente); //Se n funcionar faço apartir da rpm
+
+	//Serial.println(tempoPorGrau);
 	anguloCambota = anguloCambota + ldiv(tempoDecorridoDesdeUltimoDente, tempoPorGrau).quot;
+	//Serial.println(anguloCambota);
 
 	if (anguloCambota > 360) {
 		anguloCambota = anguloCambota - 360;
@@ -387,7 +392,7 @@ int getLowRPM(long temp_tempoUltimoDente, long temp_tempoPenultimoDente, int tem
 
 void coilDischargeTimer_callback(void *arg) {
 
-	digitalWrite(bobine1Pin, HIGH);
+	digitalWrite(bobine1Pin, HIGH); //Descarregar bobine
 
 	//prntIGN();
 }
@@ -436,40 +441,25 @@ void IRAM_ATTR onPulse(void) {
 			ESP_ERROR_CHECK(ledc_update_duty(INJ1_MODE, INJ1_CHANNEL));
 
 			//digitalWrite(bobine1Pin, updateECU.descargaBobine);
-			digitalWrite(bobine1Pin, LOW);
 			//xQueueOverwriteFromISR(xtempoPrimeiroDenteMenosUm, &tempoPrimeiroDenteMenosUm, &xHigherPriorityTaskWoken);
 		} else {
 			updateECU.tempoFiltro = falhaAtual * 0.25; // 25% de filtro
 			updateECU.ContadorDentes++;
-			/*Serial.print("counter 1.5: ");
-			 Serial.println(contadorDentes);*/
-			//xQueueOverwriteFromISR(xtempoFiltro, &tempoFiltro, &xHigherPriorityTaskWoken);
-			//xQueueSendToFrontFromISR(xContadorDentes, &contadorDentes, &xHigherPriorityTaskWoken);
 		}
-
-		/*if (xQueueOverwriteFromISR(xContadorDentes, &contadorDentes, &xHigherPriorityTaskWoken) == pdPASS) {
-		 //printf("Value %d sent to the queue\n", contadorDentes);
-		 }*/
 
 		if (updateECU.ContadorDentes == 3) {
 
-			//Buscar o valor da ignição
-			//float valorignicao = 7;
-			//float tempoPorGrau = (updateECU.tempoUltimoDente / anguloPorDente);
-			//float anguloDisparo = (desvioPrimeiroDenteTDC - updateECU.avancoIGN) - getCrankAngle((int) tempoPorGrau, updateECU.ContadorDentes);
-			//Serial.println(tempoPorGrau);
-			//Serial.println(anguloDisparo);
-			//timerAlarm(coilTimer, (anguloDisparo * tempoPorGrau), false, 0);
-			//esp_timer_start_once(coilTimer, long(anguloDisparo * tempoPorGrau));
-
-			if (esp_timer_is_active(coilTimer) == 0) {			// supostamente nunca vai retornar 1 pq o timer demora menos tempo que uma rotacao completa da cambota
-				ESP_ERROR_CHECK(esp_timer_start_once(coilTimer, 1000000));
+			if (esp_timer_is_active(coilTimer) == 0) { // supostamente nunca vai retornar 1 pq o timer demora menos tempo que uma rotacao completa da cambota
+				ESP_ERROR_CHECK(esp_timer_start_once(coilTimer, updateECU.timerIGN));
 			}
 			//Serial.println("TIMER HAS BEEN TRIGGERED!!!!!");
 		}
 
 		updateECU.tempoPenultimoDente = updateECU.tempoUltimoDente;
 		updateECU.tempoUltimoDente = tempoAtual;
+		updateECU.falhaAtual = falhaAtual;
+
+		digitalWrite(bobine1Pin, LOW); //Carregar a bobine
 
 		xQueueOverwriteFromISR(xECU, &updateECU, &xHigherPriorityTaskWoken);
 		xSemaphoreGiveFromISR(xInterpolacao, &xHigherPriorityTaskWoken);
@@ -500,10 +490,15 @@ void vInterpolacao(void *pvParameters) {
 
 				//GESTAO DA IGNIÇÃO
 
-				//float tempoPorGrau = (updateECU.tempoUltimoDente / anguloPorDente);
-				//float anguloDisparo = (desvioPrimeiroDenteTDC - updateECU.avancoIGN) - getCrankAngle((int) tempoPorGrau, updateECU.ContadorDentes);
+				float tempoPorGrau = (updateECU.falhaAtual / anguloPorDente);
+				float anguloDisparo = (desvioPrimeiroDenteTDC - updateECU.avancoIGN) - getCrankAngle(updateECU.tempoUltimoDente, (int) tempoPorGrau, updateECU.ContadorDentes);
+				long timerIGN = long(anguloDisparo * tempoPorGrau);
+
+				updateECU.timerIGN = timerIGN;
 				//Serial.println(tempoPorGrau);
 				//Serial.println(anguloDisparo);
+				//Serial.println(tempoPorGrau);
+				//Serial.println(updateECU.falhaAtual);
 
 				xQueueOverwrite(xECU, &updateECU);
 
@@ -514,7 +509,6 @@ void vInterpolacao(void *pvParameters) {
 
 			}
 		}
-		vTaskDelay(25 / portTICK_PERIOD_MS);
 	}
 }
 
