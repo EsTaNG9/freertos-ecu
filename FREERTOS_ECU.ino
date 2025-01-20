@@ -88,7 +88,6 @@ XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
  will be synchronized with. */
 void IRAM_ATTR onPulse(void);
 void coilDischargeTimer_callback(void *arg);
-//void IRAM_ATTR coilDischargeTimer(void);
 
 /* The tasks to be created. */
 void vDisplay(void *pvParameters);
@@ -103,7 +102,7 @@ float interpolation(int, int, int);
 float getADC(int);
 //void setup_timers(void);
 
-//estruturas
+// Estruturas
 typedef struct {
 	bool proxima;
 	bool antes;
@@ -146,8 +145,6 @@ SemaphoreHandle_t xInterpolacao; // Binary semaphore
 // Timers
 esp_timer_handle_t coilTimer; //Definir a handle globalmente para a poder chamar na interrupcao
 
-// Estruturas
-
 // pin to generate interrupts
 const uint8_t interruptPin = 4;
 //const uint8_t bombaCombustivelPin = 28;
@@ -187,17 +184,8 @@ void setup(void) {
 	ESP_ERROR_CHECK(ledc_channel_config(&inj1_channel));
 
 	//timers
-	//esp_timer_handle_t coilTimer;
 	esp_timer_create_args_t coilTimer_args = { .callback = &coilDischargeTimer_callback, .arg = NULL, .name = "coilTimer" };
 	ESP_ERROR_CHECK(esp_timer_create(&coilTimer_args, &coilTimer));
-	//ESP_ERROR_CHECK(esp_timer_start_periodic(coilTimer, 1000000)); // 5 seconds (5,000,000 µs)
-
-	/*coilTimer = timerBegin(1000000);
-	 timerAttachInterrupt(coilTimer, &coilDischargeTimer);
-	 esp_timer_create_args_t coilTimer_args; //= { .callback = &coilDischargeTimer_callback, .arg = NULL, .name = "coilTimer" };
-	 coilTimer_args.arg = NULL, coilTimer_args.callback = &coilDischargeTimer_callback, coilTimer_args.name = "coilTimer";
-	 ESP_ERROR_CHECK(esp_timer_create(&coilTimer_args, &coilTimer));
-	 ESP_ERROR_CHECK(esp_timer_start_periodic(coilTimer, 1000000)); // 5 seconds (5,000,000 µs)*/
 
 	//queues
 	xECU = xQueueCreate(1, sizeof(ecu_info_t));
@@ -206,6 +194,8 @@ void setup(void) {
 	//Semafro Mutex
 	xPaginaMutex = xSemaphoreCreateMutex();
 	xECUMutex = xSemaphoreCreateMutex();
+
+	//semaforo sincronizador
 	xInterpolacao = xSemaphoreCreateBinary();
 
 	//Assegurar valores iniciais nas queues
@@ -399,12 +389,9 @@ void coilDischargeTimer_callback(void *arg) {
 
 // Interrupção gerada na transição do sinal do sensor de Hall
 void IRAM_ATTR onPulse(void) {
-	//Serial.println("	gay");
 	ecu_info_t updateECU;
-	//unsigned long tempoUltimoDente = 1, tempoPenultimoDente = 0, tempoAtual = 0, VALOR_QUEUE = 0, falhaAtual = 0, falhaObjetivo = 0, tempoPrimeiroDente = 0, tempoFiltro = 0, tempoPrimeiroDenteMenosUm = 0; // n pode ser volatile pq quero mandar valores para a queeue
 	unsigned long falhaAtual = 0, falhaObjetivo = 0, tempoFiltro = 0, tempoAtual = 0; // n pode ser volatile pq quero mandar valores para a queeue
 	BaseType_t xHigherPriorityTaskWoken;
-	//uint16_t contadorDentes = 35, VALOR_QUEUE_INT = 0;
 
 	if (xQueueReceiveFromISR(xECU, &updateECU, &xHigherPriorityTaskWoken) == pdPASS) {
 
@@ -418,10 +405,6 @@ void IRAM_ATTR onPulse(void) {
 		//Serial.println("Debounce");
 	} else {
 
-		//Serial.print("Tempo Falha: ");
-		//Serial.println(falhaAtual);
-		//Add para guardar, queue aberturaAtual
-
 		falhaObjetivo = 1.5 * (updateECU.tempoUltimoDente - updateECU.tempoPenultimoDente);
 
 		if (falhaAtual > falhaObjetivo || updateECU.ContadorDentes > numRealDentes) {
@@ -434,14 +417,9 @@ void IRAM_ATTR onPulse(void) {
 			updateECU.descargaBobine = LOW;
 
 			//setup injecao  -- DA ERRO QND TENTO INICIALIZAR O DUTY CYCLE
-			//float duty = (interpolation(50, 2500, 1) / 0.012); // y = 0,012x (X0; Y0),(X8191;Y100)
-			//Serial.print(duty);
-			//ESP_ERROR_CHECK(ledc_set_duty(INJ1_MODE, INJ1_CHANNEL, (int)duty));
 			ESP_ERROR_CHECK(ledc_set_duty(INJ1_MODE, INJ1_CHANNEL, updateECU.dutyVE));
 			ESP_ERROR_CHECK(ledc_update_duty(INJ1_MODE, INJ1_CHANNEL));
 
-			//digitalWrite(bobine1Pin, updateECU.descargaBobine);
-			//xQueueOverwriteFromISR(xtempoPrimeiroDenteMenosUm, &tempoPrimeiroDenteMenosUm, &xHigherPriorityTaskWoken);
 		} else {
 			updateECU.tempoFiltro = falhaAtual * 0.25; // 25% de filtro
 			updateECU.ContadorDentes++;
