@@ -186,12 +186,17 @@ void setup(void) {
 	ESP_ERROR_CHECK(ledc_channel_config(&inj1_channel));
 
 	//timers
-	//coilTimer = timerBegin(1000000);
-	//timerAttachInterrupt(coilTimer, &coilDischargeTimer);
-	//esp_timer_create_args_t coilTimer_args; //= { .callback = &coilDischargeTimer_callback, .arg = NULL, .name = "coilTimer" };
-	//coilTimer_args.arg = NULL, coilTimer_args.callback = &coilDischargeTimer_callback, coilTimer_args.name = "coilTimer";
-	//ESP_ERROR_CHECK(esp_timer_create(&coilTimer_args, &coilTimer));
+	//esp_timer_handle_t coilTimer;
+	esp_timer_create_args_t coilTimer_args = { .callback = &coilDischargeTimer_callback, .arg = NULL, .name = "coilTimer" };
+	ESP_ERROR_CHECK(esp_timer_create(&coilTimer_args, &coilTimer));
 	//ESP_ERROR_CHECK(esp_timer_start_periodic(coilTimer, 1000000)); // 5 seconds (5,000,000 µs)
+
+	/*coilTimer = timerBegin(1000000);
+	 timerAttachInterrupt(coilTimer, &coilDischargeTimer);
+	 esp_timer_create_args_t coilTimer_args; //= { .callback = &coilDischargeTimer_callback, .arg = NULL, .name = "coilTimer" };
+	 coilTimer_args.arg = NULL, coilTimer_args.callback = &coilDischargeTimer_callback, coilTimer_args.name = "coilTimer";
+	 ESP_ERROR_CHECK(esp_timer_create(&coilTimer_args, &coilTimer));
+	 ESP_ERROR_CHECK(esp_timer_start_periodic(coilTimer, 1000000)); // 5 seconds (5,000,000 µs)*/
 
 	//queues
 	xECU = xQueueCreate(1, sizeof(ecu_info_t));
@@ -427,7 +432,7 @@ void IRAM_ATTR onPulse(void) {
 			//float duty = (interpolation(50, 2500, 1) / 0.012); // y = 0,012x (X0; Y0),(X8191;Y100)
 			//Serial.print(duty);
 			//ESP_ERROR_CHECK(ledc_set_duty(INJ1_MODE, INJ1_CHANNEL, (int)duty));
-			ESP_ERROR_CHECK(ledc_set_duty(INJ1_MODE, INJ1_CHANNEL, 10000000));
+			ESP_ERROR_CHECK(ledc_set_duty(INJ1_MODE, INJ1_CHANNEL, updateECU.dutyVE));
 			ESP_ERROR_CHECK(ledc_update_duty(INJ1_MODE, INJ1_CHANNEL));
 
 			//digitalWrite(bobine1Pin, updateECU.descargaBobine);
@@ -448,13 +453,19 @@ void IRAM_ATTR onPulse(void) {
 
 		if (updateECU.ContadorDentes == 3) {
 
-			/*//Buscar o valor da ignição
-			 float valorignicao = 7;
-			 float tempoPorGrau = (tempoUltimoDente / anguloPorDente);
-			 float anguloDisparo = (desvioPrimeiroDenteTDC - valorignicao) - getCrankAngle(tempoPorGrau, contadorDentes);
-			 //timerAlarm(coilTimer, (anguloDisparo * tempoPorGrau), false, 0);
-			 esp_timer_start_once(coilTimer, long(anguloDisparo * tempoPorGrau));
-			 Serial.println("TIMER HAS BEEN TRIGGERED!!!!!");*/
+			//Buscar o valor da ignição
+			//float valorignicao = 7;
+			//float tempoPorGrau = (updateECU.tempoUltimoDente / anguloPorDente);
+			//float anguloDisparo = (desvioPrimeiroDenteTDC - updateECU.avancoIGN) - getCrankAngle((int) tempoPorGrau, updateECU.ContadorDentes);
+			//Serial.println(tempoPorGrau);
+			//Serial.println(anguloDisparo);
+			//timerAlarm(coilTimer, (anguloDisparo * tempoPorGrau), false, 0);
+			//esp_timer_start_once(coilTimer, long(anguloDisparo * tempoPorGrau));
+
+			if (esp_timer_is_active(coilTimer) == 0) {			// supostamente nunca vai retornar 1 pq o timer demora menos tempo que uma rotacao completa da cambota
+				ESP_ERROR_CHECK(esp_timer_start_once(coilTimer, 1000000));
+			}
+			//Serial.println("TIMER HAS BEEN TRIGGERED!!!!!");
 		}
 
 		updateECU.tempoPenultimoDente = updateECU.tempoUltimoDente;
@@ -462,10 +473,6 @@ void IRAM_ATTR onPulse(void) {
 
 		xQueueOverwriteFromISR(xECU, &updateECU, &xHigherPriorityTaskWoken);
 		xSemaphoreGiveFromISR(xInterpolacao, &xHigherPriorityTaskWoken);
-		/*if (xHigherPriorityTaskWoken) {
-		 vPortYield();
-
-		 }*/
 	}
 }
 
@@ -475,6 +482,8 @@ void vInterpolacao(void *pvParameters) {
 		if (xSemaphoreTake(xInterpolacao, portMAX_DELAY)) {
 
 			if (xQueuePeek(xECU, &updateECU, portMAX_DELAY) == pdPASS) {
+
+				//INTERPOLACAO
 
 				int temp_MAP = (int) updateECU.MAP;
 				int temp_RPM = updateECU.RPM;
@@ -489,6 +498,13 @@ void vInterpolacao(void *pvParameters) {
 				updateECU.avancoIGN = ign_result;
 				updateECU.dutyVE = duty;
 
+				//GESTAO DA IGNIÇÃO
+
+				//float tempoPorGrau = (updateECU.tempoUltimoDente / anguloPorDente);
+				//float anguloDisparo = (desvioPrimeiroDenteTDC - updateECU.avancoIGN) - getCrankAngle((int) tempoPorGrau, updateECU.ContadorDentes);
+				//Serial.println(tempoPorGrau);
+				//Serial.println(anguloDisparo);
+
 				xQueueOverwrite(xECU, &updateECU);
 
 				if ( DEBUG == "ON" && DEBUG_LEVEL <= 2) {
@@ -498,6 +514,7 @@ void vInterpolacao(void *pvParameters) {
 
 			}
 		}
+		vTaskDelay(25 / portTICK_PERIOD_MS);
 	}
 }
 
