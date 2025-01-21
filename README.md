@@ -44,46 +44,33 @@ Despite our efforts, the deadline came in quicly and unfortunately we didnt have
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 
-### Materials
+### Hardware
 
-This is an example of how to list things you need to use the software and how to install them.
-* ESP32 Development Board
-* XXX Ω Resisor
-* XXX Ω Resisor
-* XXX Ω Resisor
-* XXX Ω Resisor
-* 4x 1N5919BG Zenner Diodes
-* 12x 1N4004 Diodes
-* 2x 1N5818RLG Diodes
-* 2x SP721APP
-* 3x 2N2222
-* 1x AO9926B
-* 1x STP75NS04Z MOSFET
-* 1X ISL9V5036P3 IGBT
-* 1X LM2940T-5.0/NOPB Voltage Regulator
-* 3x TC4424EPA
-* 13x 5V LED´s
-* XXX uF Capacitor
-* XXX uF Capacitor
-* XXX uF Capacitor
-* XXX uF Capacitor
+*	1x ESP32
+*	1x Hall Sensor
+*	4x Potentiometers (Emulate de CLT, IAT, MAP and TPS sensors)
+*	1x ILI9341 320x240 SPI TFT LCD Display with Touch Sensor
+*	3x LED´s + associated Resistors (Emulate Ignition Coil, Fuel Injector and Fuel Pump)
+*	2x ESP32 Dev Kits (One as the controller the other has the Hall Sensor emulator)
+*	Breadboard
+
 
 <!-- ROADMAP -->
 ## Roadmap
 
 - [x] Hall sensor triggering an interrupt
 - [x] Trigger pattern 36-1 on the interrupt
-- [ ] DISPLAY
-    - [ ] Touch
-    - [ ] VE table
-    - [ ] IGN table
-    - [ ] Main page
+- [x] DISPLAY
+    - [x] Touch
+    - [x] VE table
+    - [x] IGN table
+    - [x] Main page
 - [x] Read + interpolate value from tables
-- [ ] ADC
-    - [ ] MAP
-    - [ ] IAT
-    - [ ] CLT
-    - [ ] TPS
+- [x] ADC
+    - [x] MAP
+    - [x] IAT
+    - [x] CLT
+    - [x] TPS
 
 See the [open issues](https://github.com/EsTaNG9/freertos-ecu/issues) for a full list of proposed features (and known issues).
 
@@ -97,7 +84,8 @@ João Serrada - [@estang9](https://instagram.com/estang9) - 2192349@my.ipleiria.
 
 Alexandre Bernardo - 2213099@my.ipleiria.pt
 
-Project Link: [https://github.com/EsTaNG9/freertos-ecu](https://github.com/EsTaNG9/freertos-ecu)
+* Project Link: [https://github.com/EsTaNG9/freertos-ecu](https://github.com/EsTaNG9/freertos-ecu)
+* Youtube Link: https://youtube.com/shorts/LGoChy05eWk?si=GkpXqMZLSzVU_k7_
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
