@@ -3,7 +3,7 @@
  João Serrada Nº2192349
  IPLEIRIA - Instituto Politécnico de Leiria
  ESTG - Escola Superior de Tecnologia e Gestão
- LEEC- Licenciatura em Engenharia Eletrotécnica e de Computadores
+ EAU - Licenciatura em Engenharia Automóvel
  SEEV - Sistemas Elétricos e Eletrónicos de Veículos
 
  TP1: Pretende-se desenvolver uma controlador básico para um motor de combustão interna monocilindrico a injeção e ignição eletronicas
@@ -242,22 +242,19 @@ void vBrain(void *pvParameters) {
 	float temp_voltage = 0;
 
 	while (true) {
-		//loopAtual_Brain = tempoAtual_Brain - tempoUltimoloop_Brain;
+		//Obter o "tempo" de quando o ciclo while doi reiniciado
 		long tempoAtual_Brain = micros();
 
-		//float duty = interpolation(50, 2500, 1); // y = 0,012x (X0; Y0),(X8191;Y100)
-		//Serial.println(duty);
-
-		//if (xSemaphoreTake(xECUMutex, portMAX_DELAY) == pdTRUE && xQueuePeek(xECU, &getECU, portMAX_DELAY) == pdPASS) {
-		//xSemaphoreGive(xECUMutex);
+		//Obter valores da queue
 		if (xQueuePeek(xECU, &getECU, (TickType_t) 250) == pdPASS) {
-			//tempoUltimoDente = temp_tempoUltimoDente;
 		}
 
+		//Obter quanto tempo passou desde a detectação do último dente
 		unsigned long tempoParaUltimoDente = (tempoAtual_Brain - getECU.tempoUltimoDente);
 
 		//Serial.println("Brain: RUNNING");
 
+		//Verificvamos de o motor sequer está a rodar
 		if (tempoParaUltimoDente < (TEMPO_MAXIMO_MOTOR_MORRER * 1000)) {
 			int ultimaRPM = atualRPM;
 			//atualRPM = getECU.RPM;
@@ -275,6 +272,7 @@ void vBrain(void *pvParameters) {
 		} else {
 			atualRPM = 0;
 			getECU.contadorrevolucoes = 0;
+			getECU.bombaCombustivel = false;
 			//bombaCombustivel = false;
 			getECU.sincronizacao = false;
 			getECU.atualRPS = 0;
@@ -283,8 +281,7 @@ void vBrain(void *pvParameters) {
 
 		if (getECU.sincronizacao && (atualRPM > 0)) {
 
-			// Podemos configurar a ignição
-
+			// future development
 		}
 
 		//Updatar o valor MAP
@@ -292,14 +289,17 @@ void vBrain(void *pvParameters) {
 		float temp_MAP = temp_voltage * (MAP_0V - MAP_5V) / (VREF_MINUS - VREF_PLUS);
 		getECU.MAP = temp_MAP;
 
+		//Updatar o valor TPS
 		temp_voltage = getADC(MAPSensorPin);
 		float temp_TPS = temp_voltage * (TPS_0V - TPS_5V) / (VREF_MINUS - VREF_PLUS);
 		getECU.TPS = temp_TPS;
 
+		//Updatar o valor IAT
 		temp_voltage = getADC(MAPSensorPin);
 		float temp_IAT = temp_voltage * (IAT_0V - IAT_5V) / (VREF_MINUS - VREF_PLUS);
 		getECU.IAT = temp_IAT;
 
+		//Updatar o valor CLT
 		temp_voltage = getADC(MAPSensorPin);
 		float temp_CLT = temp_voltage * (CLT_0V - CLT_5V) / (VREF_MINUS - VREF_PLUS);
 		getECU.CLT = temp_CLT;
@@ -308,7 +308,6 @@ void vBrain(void *pvParameters) {
 
 		//Atualizar a Queue principal
 		if (xQueueOverwrite(xECU, &getECU) == pdPASS) {
-			//tempoUltimoDente = temp_tempoUltimoDente;
 		}
 
 		//Código de detecção touch
@@ -322,12 +321,12 @@ void vBrain(void *pvParameters) {
 			z = p.z; //PRESSAO
 
 			if (x < 160) {
-				Serial.print("NEXTTTT");
+				//Serial.print("NEXTTTT");
 				updateValores.proxima = true;
 				updateValores.antes = false; //redundancia
 
 			} else {
-				Serial.print("PREVIOUS");
+				//Serial.print("PREVIOUS");
 				updateValores.antes = true;
 				updateValores.proxima = false; //redundancia
 			}
@@ -336,7 +335,7 @@ void vBrain(void *pvParameters) {
 			xSemaphoreGive(xPaginaMutex);
 
 		}
-		//}
+
 		if ( DEBUG == "ON" && DEBUG_LEVEL <= 2) {
 			Serial.print("Correu a task: ");
 			Serial.println(pcTaskGetTaskName(NULL));
@@ -367,7 +366,6 @@ int getCrankAngle(long tempoUltimoDente, long tempoPorGrau, int contadorDentes) 
 	//tempoPorGrau = (temp_tempoUltimoDente / anguloPorDente); //Se n funcionar faço apartir da rpm
 	tempoPorGrau = (tempoUltimoDente / anguloPorDente); //Se n funcionar faço apartir da rpm
 
-	//Serial.println(tempoPorGrau);
 	anguloCambota = anguloCambota + ldiv(tempoDecorridoDesdeUltimoDente, tempoPorGrau).quot;
 	//Serial.println(anguloCambota);
 
@@ -453,6 +451,8 @@ void IRAM_ATTR onPulse(void) {
 		digitalWrite(bobine1Pin, LOW); //Carregar a bobine
 
 		xQueueOverwriteFromISR(xECU, &updateECU, &xHigherPriorityTaskWoken);
+
+		//Semafro binário para sincronizar a interrupção com a Task vInterpolacao
 		xSemaphoreGiveFromISR(xInterpolacao, &xHigherPriorityTaskWoken);
 	}
 }
@@ -974,8 +974,8 @@ void prntIGN(void) {
 float getADC(int Pino) {
 	int temp_valorAnalogico;
 	float temp_ddpAnalogica;
-	//float temp_ADCValue;
 
+	//Ler o valor analógico do pino recebido pela função
 	temp_valorAnalogico = analogRead(Pino);
 	temp_ddpAnalogica = temp_valorAnalogico * (VREF_PLUS - VREF_MINUS) / (pow(2.0, (float) ADC_RESOLUTION)) + VREF_MINUS;
 
